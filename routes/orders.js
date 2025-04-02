@@ -39,15 +39,9 @@ router.put('/:id', async (req, res) => {
   const { id } = req.params
   const { name, table_number } = req.body
 
-  // Validate required fields
-  if (!name || !table_number) {
-    return res.status(400).json({ 
-      success: false, 
-      message: 'İsim ve masa numarası zorunludur.' 
-    })
-  }
-
   try {
+    console.log("Gelen güncelleme:", { id, name, table_number }) // Debug
+
     // Check if order exists
     const orderCheck = await pool.query(
       'SELECT id FROM orders WHERE id = $1',
@@ -61,16 +55,20 @@ router.put('/:id', async (req, res) => {
       })
     }
 
-    // Update order
+    // Update order with parsed table_number
     await pool.query(
       'UPDATE orders SET name = $1, table_number = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
-      [name, table_number, id]
+      [name, parseInt(table_number), id]
     )
 
     res.json({ success: true, message: 'Sipariş güncellendi.' })
   } catch (err) {
     console.error('Güncelleme hatası:', err)
-    res.status(500).json({ success: false, message: 'Bir hata oluştu.' })
+    res.status(500).json({ 
+      success: false, 
+      message: err.message,
+      details: 'Sipariş güncellenirken bir hata oluştu. Lütfen girdiğiniz verileri kontrol edin.'
+    })
   }
 })
 
