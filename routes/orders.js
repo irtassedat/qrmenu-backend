@@ -34,4 +34,16 @@ router.post("/", async (req, res) => {
   }
 })
 
+// DELETE /api/orders/:id → Siparişi sil
+router.delete('/:id', async (req, res) => {
+  const { id } = req.params
+  try {
+    await pool.query('DELETE FROM orders WHERE id = $1', [id])
+    res.json({ success: true, message: 'Sipariş silindi.' })
+  } catch (err) {
+    console.error('Silme hatası:', err)
+    res.status(500).json({ success: false, message: 'Bir hata oluştu.' })
+  }
+})
+
 module.exports = router 
