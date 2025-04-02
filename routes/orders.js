@@ -34,6 +34,46 @@ router.post("/", async (req, res) => {
   }
 })
 
+// PUT /api/orders/:id → Siparişi güncelle
+router.put('/:id', async (req, res) => {
+  const { id } = req.params
+  const { name, table_number } = req.body
+
+  // Validate required fields
+  if (!name || !table_number) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'İsim ve masa numarası zorunludur.' 
+    })
+  }
+
+  try {
+    // Check if order exists
+    const orderCheck = await pool.query(
+      'SELECT id FROM orders WHERE id = $1',
+      [id]
+    )
+
+    if (orderCheck.rowCount === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Sipariş bulunamadı.' 
+      })
+    }
+
+    // Update order
+    await pool.query(
+      'UPDATE orders SET name = $1, table_number = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
+      [name, table_number, id]
+    )
+
+    res.json({ success: true, message: 'Sipariş güncellendi.' })
+  } catch (err) {
+    console.error('Güncelleme hatası:', err)
+    res.status(500).json({ success: false, message: 'Bir hata oluştu.' })
+  }
+})
+
 // DELETE /api/orders/:id → Siparişi sil
 router.delete('/:id', async (req, res) => {
   const { id } = req.params
