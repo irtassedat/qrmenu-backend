@@ -5,6 +5,7 @@ require('dotenv').config();
 const productRoutes = require('./routes/products');
 const branchRoutes = require('./routes/branches');
 const categoryRoutes = require('./routes/categories');
+const orderRoutes = require('./routes/orders');
 
 const app = express();
 
@@ -16,6 +17,7 @@ app.use(express.json()); // JSON body parse eder
 app.use('/api/products', productRoutes);
 app.use('/api/branches', branchRoutes);
 app.use('/api/categories', categoryRoutes);
+app.use('/api/orders', orderRoutes);
 
 // Test endpoint
 app.get('/', (req, res) => {
