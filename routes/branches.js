@@ -19,15 +19,17 @@ router.get('/:id/products', async (req, res) => {
 
   try {
     const result = await db.query(`
-      SELECT 
-        p.*, 
-        c.name AS category_name,
-        bp.is_visible,
-        bp.stock_count
+      SELECT p.*, c.name as category_name
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
-      LEFT JOIN branch_products bp ON bp.product_id = p.id AND bp.branch_id = $1
-      ORDER BY c.id, p.id
+      INNER JOIN branch_products bp ON p.id = bp.product_id
+      WHERE bp.branch_id = $1
+        AND bp.is_visible = true
+        AND (
+          p.is_deleted = false
+          OR (p.is_deleted = true AND c.name = 'Çaylar')
+        )
+      ORDER BY c.name, p.name
     `, [branchId]);
 
     res.json(result.rows);

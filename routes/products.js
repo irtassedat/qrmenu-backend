@@ -11,6 +11,7 @@ router.get('/', async (req, res) => {
         categories.name AS category_name 
       FROM products
       LEFT JOIN categories ON products.category_id = categories.id
+      WHERE products.is_deleted = false
       ORDER BY products.id ASC
     `);
     res.json(result.rows);
@@ -29,12 +30,24 @@ router.post('/', async (req, res) => {
   }
 
   try {
+    // 1. Ürünü ekle
     const result = await db.query(
       `INSERT INTO products (name, description, image_url, price, category_id)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`,
       [name, description, image_url, price, category_id]
     );
+
+    // 2. Tüm şubelere otomatik tanımla
+    const branches = await db.query('SELECT id FROM branches');
+    for (const branch of branches.rows) {
+      await db.query(
+        `INSERT INTO branch_products (branch_id, product_id, is_visible, stock_count)
+         VALUES ($1, $2, true, 0)`,
+        [branch.id, result.rows[0].id]
+      );
+    }
+
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Ürün eklenirken hata:', err.message);
@@ -42,21 +55,27 @@ router.post('/', async (req, res) => {
   }
 });
 
-// ✅ DELETE /api/products/:id → Ürünü sil
+// ✅ DELETE /api/products/:id → Ürünü soft delete yap
 router.delete("/:id", async (req, res) => {
   const { id } = req.params
 
   try {
-    const result = await db.query("DELETE FROM products WHERE id = $1", [id])
+    const result = await db.query(
+      `UPDATE products 
+       SET is_deleted = true 
+       WHERE id = $1 AND is_deleted = false 
+       RETURNING *`,
+      [id]
+    )
 
     if (result.rowCount === 0) {
-      return res.status(404).json({ error: "Ürün bulunamadı" })
+      return res.status(404).json({ error: "Ürün bulunamadı veya zaten silinmiş" })
     }
 
-    res.json({ message: "Ürün silindi" })
+    res.json({ message: "Ürün başarıyla silindi" })
   } catch (err) {
-    console.error("Ürün silme hatası:", err.message)
-    res.status(500).json({ error: "Sunucu hatası" })
+    console.error("Ürün silinirken hata:", err)
+    res.status(500).json({ error: "Ürün silinemedi" })
   }
 })
 
@@ -110,6 +129,8 @@ router.get("/branch/:branch_id", async (req, res) => {
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
       LEFT JOIN branch_products bp ON bp.product_id = p.id AND bp.branch_id = $1
+      WHERE p.is_deleted = false
+        AND (bp.is_visible IS NULL OR bp.is_visible = true)
       ORDER BY p.id
     `, [branch_id]);
 
@@ -206,6 +227,87 @@ router.patch("/branch-product", async (req, res) => {
     });
   } catch (err) {
     console.error("Güncelleme hatası:", err.message);
+    res.status(500).json({ error: "Sunucu hatası" });
+  }
+});
+
+// POST /api/products/bulk → Toplu ürün ekle
+router.post('/bulk', async (req, res) => {
+  const { products } = req.body;
+
+  if (!Array.isArray(products)) {
+    return res.status(400).json({ error: "Geçersiz veri formatı" });
+  }
+
+  try {
+    let insertedCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+
+    // Get all branches once
+    const branches = await db.query('SELECT id FROM branches');
+
+    for (const item of products) {
+      try {
+        // Validate required fields
+        if (!item.Ürün || !item.Fiyat || !item.Kategori) {
+          skippedCount++;
+          continue;
+        }
+
+        // Get category ID
+        const categoryRes = await db.query(
+          "SELECT id FROM categories WHERE name = $1", 
+          [item.Kategori]
+        );
+        
+        if (!categoryRes.rows[0]) {
+          skippedCount++;
+          continue;
+        }
+
+        const category_id = categoryRes.rows[0].id;
+
+        // Insert product
+        const result = await db.query(
+          `INSERT INTO products (name, description, price, image_url, category_id)
+           VALUES ($1, $2, $3, $4, $5)
+           RETURNING id`,
+          [
+            item.Ürün,
+            item.Açıklama || '',
+            parseFloat(item.Fiyat),
+            item.Görsel || '',
+            category_id
+          ]
+        );
+
+        // Add to all branches
+        for (const branch of branches.rows) {
+          await db.query(
+            `INSERT INTO branch_products (branch_id, product_id, is_visible, stock_count)
+             VALUES ($1, $2, true, $3)`,
+            [branch.id, result.rows[0].id, parseInt(item.Stok) || 0]
+          );
+        }
+
+        insertedCount++;
+      } catch (err) {
+        console.error(`Ürün eklenirken hata (${item.Ürün}):`, err.message);
+        errorCount++;
+      }
+    }
+
+    res.json({ 
+      message: "Toplu ürün ekleme tamamlandı",
+      stats: {
+        inserted: insertedCount,
+        skipped: skippedCount,
+        errors: errorCount
+      }
+    });
+  } catch (err) {
+    console.error("Toplu ürün ekleme hatası:", err.message);
     res.status(500).json({ error: "Sunucu hatası" });
   }
 });
