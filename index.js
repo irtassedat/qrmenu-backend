@@ -1,3 +1,4 @@
+// index.js
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
@@ -9,9 +10,33 @@ const orderRoutes = require('./routes/orders');
 
 const app = express();
 
-// Middlewares
-app.use(cors()); // Tüm originlerden gelen istekleri kabul eder (güvenlik için prod ortamda sınırlandırılır)
-app.use(express.json()); // JSON body parse eder
+// CORS yapılandırması - Geliştirme ortamı için daha fazla izin ver
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Whitelist
+    const allowedOrigins = [
+      'http://localhost:5173',  // Vite dev server
+      'http://localhost:5174',  // Alternatif port
+      'http://localhost:3000',  // React dev server
+      'https://qr.405found.tr'  // Prodüksiyon ortamı
+    ];
+    
+    // Origin null olabilir (örn. Postman istekleri)
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS policy violation'));
+    }
+  },
+  credentials: true,  // withCredentials için gerekli
+  methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS"
+};
+
+// CORS middleware'i uygula
+app.use(cors(corsOptions));
+
+// JSON body parse
+app.use(express.json());
 
 // Routes
 app.use('/api/products', productRoutes);

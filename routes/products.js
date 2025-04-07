@@ -1,23 +1,51 @@
+// routes/branches.js
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
-// ✅ GET /api/products → Veritabanından ürünleri getir
+// GET /api/branches -> Get all branches
 router.get('/', async (req, res) => {
   try {
-    const result = await db.query(`
-      SELECT 
-        products.*, 
-        categories.name AS category_name 
-      FROM products
-      LEFT JOIN categories ON products.category_id = categories.id
-      WHERE products.is_deleted = false
-      ORDER BY products.id ASC
-    `);
+    const result = await db.query('SELECT * FROM branches ORDER BY id ASC');
     res.json(result.rows);
   } catch (err) {
-    console.error('Ürünleri çekerken hata:', err.message);
-    res.status(500).json({ error: 'Ürünler getirilemedi' });
+    console.error('Error fetching branches:', err.message);
+    res.status(500).json({ error: 'Failed to fetch branches' });
+  }
+});
+
+// GET /api/branches/:id/products -> Get branch-specific products
+router.get('/:id/products', async (req, res) => {
+  const branchId = req.params.id;
+
+  // Validate branch ID - making sure it's a number
+  if (!branchId || isNaN(parseInt(branchId))) {
+    return res.status(400).json({ error: 'Invalid branch ID' });
+  }
+
+  try {
+    // First check if branch exists
+    const branchCheck = await db.query('SELECT id FROM branches WHERE id = $1', [branchId]);
+
+    if (branchCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Branch not found' });
+    }
+
+    const result = await db.query(`
+      SELECT p.*, c.name as category_name
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN branch_products bp ON p.id = bp.product_id
+      WHERE bp.branch_id = $1
+        AND bp.is_visible = true
+        AND p.is_deleted = false
+      ORDER BY c.name, p.name
+    `, [branchId]);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching branch products:', err.message);
+    res.status(500).json({ error: 'Failed to fetch branch products' });
   }
 });
 
@@ -257,10 +285,10 @@ router.post('/bulk', async (req, res) => {
 
         // Get category ID
         const categoryRes = await db.query(
-          "SELECT id FROM categories WHERE name = $1", 
+          "SELECT id FROM categories WHERE name = $1",
           [item.Kategori]
         );
-        
+
         if (!categoryRes.rows[0]) {
           skippedCount++;
           continue;
@@ -298,7 +326,7 @@ router.post('/bulk', async (req, res) => {
       }
     }
 
-    res.json({ 
+    res.json({
       message: "Toplu ürün ekleme tamamlandı",
       stats: {
         inserted: insertedCount,
