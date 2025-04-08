@@ -7,7 +7,7 @@ const productRoutes = require('./routes/products');
 const branchRoutes = require('./routes/branches');
 const categoryRoutes = require('./routes/categories');
 const orderRoutes = require('./routes/orders');
-
+const analyticsRoutes = require('./routes/analytics');
 const app = express();
 
 // CORS yapılandırması - Geliştirme ortamı için daha fazla izin ver
@@ -43,6 +43,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/branches', branchRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/analytics', analyticsRoutes);
 
 // Test endpoint
 app.get('/', (req, res) => {
@@ -50,7 +51,7 @@ app.get('/', (req, res) => {
 });
 
 // Sunucuyu başlat
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5050;
 app.listen(PORT, () => {
   console.log(`🚀 Server is running on http://localhost:${PORT}`);
 });
