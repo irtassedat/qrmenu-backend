@@ -1,4 +1,3 @@
-// index.js
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
@@ -8,6 +7,9 @@ const branchRoutes = require('./routes/branches');
 const categoryRoutes = require('./routes/categories');
 const orderRoutes = require('./routes/orders');
 const analyticsRoutes = require('./routes/analytics');
+const { router: authRoutes } = require('./routes/auth');
+const userRoutes = require('./routes/users');
+
 const app = express();
 
 // CORS yapılandırması - Geliştirme ortamı için daha fazla izin ver
@@ -44,6 +46,8 @@ app.use('/api/branches', branchRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
 
 // Test endpoint
 app.get('/', (req, res) => {
