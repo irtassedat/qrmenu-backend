@@ -246,4 +246,28 @@ router.delete('/:id', authorize(['super_admin']), async (req, res) => {
   }
 });
 
+// GET /api/users/me/branches → Kullanıcının erişebileceği şubeleri getir
+router.get('/me/branches', authorize(), async (req, res) => {
+  try {
+    const user = req.user;
+    let result;
+
+    if (user.role === 'super_admin') {
+      // Super admin tüm şubelere erişebilir
+      result = await db.query('SELECT * FROM branches ORDER BY name');
+    } else if (user.role === 'branch_manager' && user.branch_id) {
+      // Şube yöneticisi sadece kendi şubesine erişebilir
+      result = await db.query('SELECT * FROM branches WHERE id = $1', [user.branch_id]);
+    } else {
+      // Tanımsız rol veya branch_id yoksa boş liste döndür
+      result = { rows: [] };
+    }
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Kullanıcı şubeleri alınırken hata:', err.message);
+    res.status(500).json({ error: 'Şubeler getirilemedi' });
+  }
+});
+
 module.exports = router;

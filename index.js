@@ -15,18 +15,24 @@ const app = express();
 // CORS yapılandırması - Geliştirme ortamı için daha fazla izin ver
 const corsOptions = {
   origin: function (origin, callback) {
-    // Whitelist
+    // Whitelist - Tüm olası domainleri ekleyin
     const allowedOrigins = [
       'http://localhost:5173',  // Vite dev server
       'http://localhost:5174',  // Alternatif port
       'http://localhost:3000',  // React dev server
-      'https://qr.405found.tr'  // Prodüksiyon ortamı
+      'https://qr.405found.tr',  // Prodüksiyon ortamı
+      'https://www.qr.405found.tr',  // www ile
+      undefined  // Doğrudan sunucudan yapılan istekler için
     ];
+    
+    // Debug için origin'i logla
+    console.log('Request origin:', origin);
     
     // Origin null olabilir (örn. Postman istekleri)
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
+      console.error('CORS blocked origin:', origin);
       callback(new Error('CORS policy violation'));
     }
   },

@@ -5,7 +5,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || 'cesme-kahve-secret-key';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1d';
 
 // Yetkilendirme middleware - Gelen istekleri kontrol eder
@@ -55,40 +55,49 @@ const authorize = (allowedRoles = []) => {
 };
 
 // Giriş işlemi
+// routes/auth.js içinde - Login rotasını güncelliyoruz
+
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     
-    // Kullanıcıyı bul
+    // Giriş denemesini loglayalım (canlı ortamda kaldırılmalı)
+    console.log('Giriş denemesi:', { username, passwordVar: !!password });
+    
+    // Kullanıcıyı veritabanında arayalım
     const result = await db.query(
       'SELECT u.*, b.name as branch_name FROM users u LEFT JOIN branches b ON u.branch_id = b.id WHERE u.username = $1',
       [username]
     );
     
     if (result.rows.length === 0) {
+      console.log('Kullanıcı bulunamadı');
       return res.status(401).json({ error: 'Geçersiz kullanıcı adı veya şifre' });
     }
     
     const user = result.rows[0];
+    console.log('Kullanıcı bulundu:', { id: user.id, usernameFromDB: user.username });
     
-    // Şifreyi kontrol et
+    // Şifreleri karşılaştıralım
     const passwordMatch = await bcrypt.compare(password, user.password);
+    console.log('Şifre karşılaştırma sonucu:', passwordMatch);
+    
     if (!passwordMatch) {
       return res.status(401).json({ error: 'Geçersiz kullanıcı adı veya şifre' });
     }
     
-    // Kullanıcı aktif değilse reddet
+    // Kullanıcı aktif mi kontrol edelim
     if (!user.is_active) {
       return res.status(401).json({ error: 'Hesabınız devre dışı bırakılmıştır' });
     }
     
-    // Son giriş zamanını güncelle
+    // Son giriş zamanını güncelleyelim
     await db.query(
       'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
       [user.id]
     );
     
-    // JWT token oluştur
+    // JWT token oluşturalım
     const token = jwt.sign(
       { 
         userId: user.id,
@@ -98,7 +107,7 @@ router.post('/login', async (req, res) => {
       { expiresIn: JWT_EXPIRES_IN }
     );
     
-    // Kullanıcı bilgilerini dön (şifre hariç)
+    // Kullanıcı bilgilerini döndürelim (şifre hariç)
     delete user.password;
     
     res.json({
@@ -108,7 +117,7 @@ router.post('/login', async (req, res) => {
     });
     
   } catch (err) {
-    console.error('Giriş hatası:', err.message);
+    console.error('Login hatası:', err);
     res.status(500).json({ error: 'Giriş sırasında bir hata oluştu' });
   }
 });

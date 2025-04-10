@@ -1,25 +1,42 @@
 // db.js
-
 const { Pool } = require('pg');
 require('dotenv').config();
 
 // For Heroku's DATABASE_URL or traditional connection params
 const connectionString = process.env.DATABASE_URL;
 
-const pool = connectionString 
-  ? new Pool({
+let pool;
+
+try {
+  if (connectionString) {
+    console.log('✅ Veritabanı bağlantısı: Connection string kullanılıyor');
+    pool = new Pool({
       connectionString,
       ssl: {
         rejectUnauthorized: false // Required for Heroku PostgreSQL
       }
-    })
-  : new Pool({
+    });
+  } else {
+    console.log('✅ Veritabanı bağlantısı: Parametre kullanılıyor');
+    console.log('Database parameters:', {
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      database: process.env.DB_NAME,
+      port: process.env.DB_PORT
+    });
+    
+    pool = new Pool({
       host: process.env.DB_HOST,
       user: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
       port: process.env.DB_PORT
     });
+  }
+} catch (error) {
+  console.error('⚠️ Database connection error during setup:', error.message);
+  throw error;
+}
 
 // Test database connection on startup
 pool.query('SELECT NOW()', (err, res) => {
@@ -30,9 +47,21 @@ pool.query('SELECT NOW()', (err, res) => {
   }
 });
 
+// Try to check if users table exists
+pool.query('SELECT COUNT(*) FROM users', (err, res) => {
+  if (err) {
+    console.error('⚠️ Users table check error (table may not exist):', err.message);
+  } else {
+    console.log('✅ Users table exists with count:', res.rows[0].count);
+  }
+});
+
 // Helper methods for common DB operations
 module.exports = {
-  query: (text, params) => pool.query(text, params),
+  query: (text, params) => {
+    console.log('Executing query:', { text, params });
+    return pool.query(text, params);
+  },
   getClient: async () => {
     const client = await pool.connect();
     const query = client.query;
