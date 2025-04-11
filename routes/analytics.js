@@ -3,6 +3,24 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db'); // veritabanı bağlantınız
 
+// Basit bir önbellek sistemi
+const cache = {
+  data: {},
+  timeout: {}, // Önbellek geçerlilik süreleri
+  get: function(key) {
+    if (this.timeout[key] && this.timeout[key] < Date.now()) {
+      delete this.data[key];
+      delete this.timeout[key];
+      return null;
+    }
+    return this.data[key];
+  },
+  set: function(key, value, ttl = 300000) { // 5 dakika varsayılan TTL
+    this.data[key] = value;
+    this.timeout[key] = Date.now() + ttl;
+  }
+};
+
 // 1. Olay izleme endpoint'i - frontend'den gelen olayları kaydet
 router.post('/events/track', async (req, res) => {
   try {
