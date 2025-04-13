@@ -9,6 +9,8 @@ const orderRoutes = require('./routes/orders');
 const analyticsRoutes = require('./routes/analytics');
 const { router: authRoutes } = require('./routes/auth');
 const userRoutes = require('./routes/users');
+const templatesRoutes = require('./routes/templates');
+const integrationsRoutes = require('./routes/integrations');
 
 const app = express();
 
@@ -54,7 +56,8 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
-
+app.use('/api/templates', templatesRoutes);
+app.use('/api/integrations', integrationsRoutes);
 // Test endpoint
 app.get('/', (req, res) => {
   res.send('QR Menü Backend çalışıyor ✅');
