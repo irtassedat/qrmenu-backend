@@ -5,16 +5,58 @@ const bcrypt = require('bcrypt');
 const db = require('../db');
 const { authorize } = require('./auth');
 
-// Tüm kullanıcıları getir - Sadece Super Admin
+// Tüm kullanıcıları getir - Şube ID'sine göre filtreleme opsiyonlu
 router.get('/', authorize(['super_admin']), async (req, res) => {
   try {
-    const result = await db.query(`
+    const { branch_id, brand_id, role, is_active } = req.query;
+    
+    // Temel sorgu
+    let query = `
       SELECT u.id, u.username, u.email, u.role, u.is_active, 
-      u.created_at, u.last_login, u.branch_id, b.name as branch_name
+      u.full_name, u.phone, u.created_at, u.last_login, u.branch_id, u.brand_id,
+      b.name as branch_name, br.name as brand_name
       FROM users u
       LEFT JOIN branches b ON u.branch_id = b.id
-      ORDER BY u.created_at DESC
-    `);
+      LEFT JOIN brands br ON u.brand_id = br.id
+      WHERE 1=1
+    `;
+    
+    // Parametreler için array
+    const queryParams = [];
+    let paramCounter = 1;
+    
+    // Şubeye göre filtreleme
+    if (branch_id) {
+      query += ` AND u.branch_id = $${paramCounter}`;
+      queryParams.push(branch_id);
+      paramCounter++;
+    }
+    
+    // Markaya göre filtreleme
+    if (brand_id) {
+      query += ` AND u.brand_id = $${paramCounter}`;
+      queryParams.push(brand_id);
+      paramCounter++;
+    }
+    
+    // Role göre filtreleme
+    if (role) {
+      query += ` AND u.role = $${paramCounter}`;
+      queryParams.push(role);
+      paramCounter++;
+    }
+    
+    // Aktiflik durumuna göre filtreleme
+    if (is_active !== undefined) {
+      query += ` AND u.is_active = $${paramCounter}`;
+      queryParams.push(is_active === 'true');
+      paramCounter++;
+    }
+    
+    // Sıralama
+    query += ` ORDER BY u.created_at DESC`;
+    
+    const result = await db.query(query, queryParams);
     
     res.json(result.rows);
   } catch (err) {
@@ -30,9 +72,11 @@ router.get('/:id', authorize(['super_admin']), async (req, res) => {
     
     const result = await db.query(`
       SELECT u.id, u.username, u.email, u.role, u.is_active, 
-      u.created_at, u.last_login, u.branch_id, b.name as branch_name
+      u.full_name, u.phone, u.created_at, u.last_login, 
+      u.branch_id, u.brand_id, b.name as branch_name, br.name as brand_name
       FROM users u
       LEFT JOIN branches b ON u.branch_id = b.id
+      LEFT JOIN brands br ON u.brand_id = br.id
       WHERE u.id = $1
     `, [id]);
     
@@ -50,7 +94,11 @@ router.get('/:id', authorize(['super_admin']), async (req, res) => {
 // Yeni kullanıcı ekle
 router.post('/', authorize(['super_admin']), async (req, res) => {
   try {
-    const { username, email, password, role, branch_id, is_active } = req.body;
+    const { 
+      username, email, password, role, 
+      branch_id, brand_id, is_active, 
+      full_name, phone 
+    } = req.body;
     
     // Kullanıcı adı veya e-posta adresi zaten var mı?
     const existingUser = await db.query(
@@ -72,21 +120,57 @@ router.post('/', authorize(['super_admin']), async (req, res) => {
       return res.status(400).json({ error: 'Geçersiz rol' });
     }
     
-    // Branch Manager rolündeki kullanıcılar için şube ID'si zorunlu
-    if (role === 'branch_manager' && !branch_id) {
-      return res.status(400).json({ error: 'Şube yöneticisi için şube seçimi zorunludur' });
+    // Branch Manager rolündeki kullanıcılar için şube ve marka ID'si zorunlu
+    if (role === 'branch_manager') {
+      if (!branch_id) {
+        return res.status(400).json({ error: 'Şube yöneticisi için şube seçimi zorunludur' });
+      }
+      
+      if (!brand_id) {
+        return res.status(400).json({ error: 'Şube yöneticisi için marka seçimi zorunludur' });
+      }
+      
+      // Şubenin gerçekten seçilen markaya ait olup olmadığını kontrol et
+      const branchCheck = await db.query(
+        'SELECT * FROM branches WHERE id = $1 AND brand_id = $2',
+        [branch_id, brand_id]
+      );
+      
+      if (branchCheck.rows.length === 0) {
+        return res.status(400).json({ error: 'Seçilen şube belirtilen markaya ait değil' });
+      }
     }
     
     // Kullanıcıyı ekle
     const result = await db.query(`
-      INSERT INTO users (username, email, password, role, branch_id, is_active)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id, username, email, role, branch_id, is_active, created_at
-    `, [username, email, hashedPassword, role, branch_id, is_active || true]);
+      INSERT INTO users (
+        username, email, password, role, branch_id, brand_id, 
+        is_active, full_name, phone, created_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP)
+      RETURNING id, username, email, role, branch_id, brand_id, 
+                is_active, full_name, phone, created_at
+    `, [
+      username, 
+      email, 
+      hashedPassword, 
+      role, 
+      branch_id || null, 
+      brand_id || null, 
+      is_active || true, 
+      full_name, 
+      phone
+    ]);
     
     res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Kullanıcı eklenirken hata:', err.message);
+    
+    // Duplicate kullanıcı adı veya e-posta kontrolü
+    if (err.code === '23505') { // PostgreSQL unique constraint violation kodu
+      return res.status(400).json({ error: 'Bu kullanıcı adı veya e-posta zaten kullanımda' });
+    }
+    
     res.status(500).json({ error: 'Kullanıcı eklenemedi' });
   }
 });
@@ -95,7 +179,10 @@ router.post('/', authorize(['super_admin']), async (req, res) => {
 router.put('/:id', authorize(['super_admin']), async (req, res) => {
   try {
     const { id } = req.params;
-    const { username, email, role, branch_id, is_active } = req.body;
+    const { 
+      username, email, role, branch_id, brand_id, 
+      is_active, full_name, phone 
+    } = req.body;
     
     // Kullanıcı var mı?
     const userCheck = await db.query('SELECT * FROM users WHERE id = $1', [id]);
@@ -120,6 +207,27 @@ router.put('/:id', authorize(['super_admin']), async (req, res) => {
       const allowedRoles = ['super_admin', 'branch_manager'];
       if (!allowedRoles.includes(role)) {
         return res.status(400).json({ error: 'Geçersiz rol' });
+      }
+      
+      // Branch Manager rolündeki kullanıcılar için şube ve marka ID'si zorunlu
+      if (role === 'branch_manager') {
+        if (!branch_id) {
+          return res.status(400).json({ error: 'Şube yöneticisi için şube seçimi zorunludur' });
+        }
+        
+        if (!brand_id) {
+          return res.status(400).json({ error: 'Şube yöneticisi için marka seçimi zorunludur' });
+        }
+        
+        // Şubenin gerçekten seçilen markaya ait olup olmadığını kontrol et
+        const branchCheck = await db.query(
+          'SELECT * FROM branches WHERE id = $1 AND brand_id = $2',
+          [branch_id, brand_id]
+        );
+        
+        if (branchCheck.rows.length === 0) {
+          return res.status(400).json({ error: 'Seçilen şube belirtilen markaya ait değil' });
+        }
       }
     }
     
@@ -153,9 +261,28 @@ router.put('/:id', authorize(['super_admin']), async (req, res) => {
       paramCounter++;
     }
     
+    // Brand_id değerini yalnızca tanımlıysa güncelle
+    if (brand_id !== undefined) {
+      updates.push(`brand_id = $${paramCounter}`);
+      values.push(brand_id === null ? null : brand_id);
+      paramCounter++;
+    }
+    
     if (is_active !== undefined) {
       updates.push(`is_active = $${paramCounter}`);
       values.push(is_active);
+      paramCounter++;
+    }
+    
+    if (full_name !== undefined) {
+      updates.push(`full_name = $${paramCounter}`);
+      values.push(full_name);
+      paramCounter++;
+    }
+    
+    if (phone !== undefined) {
+      updates.push(`phone = $${paramCounter}`);
+      values.push(phone);
       paramCounter++;
     }
     
@@ -174,12 +301,19 @@ router.put('/:id', authorize(['super_admin']), async (req, res) => {
       UPDATE users 
       SET ${updates.join(', ')} 
       WHERE id = $${paramCounter}
-      RETURNING id, username, email, role, branch_id, is_active, updated_at
+      RETURNING id, username, email, role, branch_id, brand_id, 
+                is_active, full_name, phone, updated_at
     `, values);
     
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Kullanıcı güncellenirken hata:', err.message);
+    
+    // Duplicate kullanıcı adı veya e-posta kontrolü
+    if (err.code === '23505') { // PostgreSQL unique constraint violation kodu
+      return res.status(400).json({ error: 'Bu kullanıcı adı veya e-posta zaten kullanımda' });
+    }
+    
     res.status(500).json({ error: 'Kullanıcı güncellenemedi' });
   }
 });
@@ -267,6 +401,48 @@ router.get('/me/branches', authorize(), async (req, res) => {
   } catch (err) {
     console.error('Kullanıcı şubeleri alınırken hata:', err.message);
     res.status(500).json({ error: 'Şubeler getirilemedi' });
+  }
+});
+
+// Markaya göre şubeleri getir - Kullanıcı oluşturma/düzenleme formunda kullanılabilir
+router.get('/branches/by-brand/:brandId', authorize(['super_admin']), async (req, res) => {
+  try {
+    const { brandId } = req.params;
+    
+    // Marka var mı kontrol et
+    const brand = await db.query('SELECT * FROM brands WHERE id = $1', [brandId]);
+    
+    if (brand.rows.length === 0) {
+      return res.status(404).json({ error: 'Marka bulunamadı' });
+    }
+    
+    // Markaya ait şubeleri getir
+    const branches = await db.query(
+      `SELECT 
+        branches.*, 
+        brands.name AS brand_name
+       FROM branches
+       JOIN brands ON branches.brand_id = brands.id
+       WHERE branches.brand_id = $1
+       ORDER BY branches.name`,
+      [brandId]
+    );
+    
+    res.json(branches.rows);
+  } catch (err) {
+    console.error('Markaya göre şubeler alınırken hata:', err.message);
+    res.status(500).json({ error: 'Şubeler getirilemedi' });
+  }
+});
+
+// Tüm markaları getir - Kullanıcı oluşturma/düzenleme formunda kullanılabilir
+router.get('/brands', authorize(['super_admin']), async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM brands ORDER BY name');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Markalar alınırken hata:', err.message);
+    res.status(500).json({ error: 'Markalar getirilemedi' });
   }
 });
 

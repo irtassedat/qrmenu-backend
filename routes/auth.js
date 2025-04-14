@@ -23,9 +23,9 @@ const authorize = (allowedRoles = []) => {
       // Token'ı doğrula
       const decoded = jwt.verify(token, JWT_SECRET);
       
-      // Kullanıcı bilgilerini veritabanından al
+      // Kullanıcı bilgilerini veritabanından al - brand_id eklendi
       const userQuery = await db.query(
-        'SELECT id, username, role, branch_id FROM users WHERE id = $1',
+        'SELECT id, username, role, branch_id, brand_id FROM users WHERE id = $1',
         [decoded.userId]
       );
       
@@ -55,8 +55,6 @@ const authorize = (allowedRoles = []) => {
 };
 
 // Giriş işlemi
-// routes/auth.js içinde - Login rotasını güncelliyoruz
-
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -64,9 +62,15 @@ router.post('/login', async (req, res) => {
     // Giriş denemesini loglayalım (canlı ortamda kaldırılmalı)
     console.log('Giriş denemesi:', { username, passwordVar: !!password });
     
-    // Kullanıcıyı veritabanında arayalım
+    // Kullanıcıyı veritabanında arayalım - Şube ve marka bilgilerini dahil et
     const result = await db.query(
-      'SELECT u.*, b.name as branch_name FROM users u LEFT JOIN branches b ON u.branch_id = b.id WHERE u.username = $1',
+      `SELECT u.*, 
+       b.name as branch_name, 
+       br.name as brand_name
+       FROM users u 
+       LEFT JOIN branches b ON u.branch_id = b.id
+       LEFT JOIN brands br ON u.brand_id = br.id
+       WHERE u.username = $1`,
       [username]
     );
     
@@ -97,11 +101,13 @@ router.post('/login', async (req, res) => {
       [user.id]
     );
     
-    // JWT token oluşturalım
+    // JWT token oluşturalım - brand_id eklendi
     const token = jwt.sign(
       { 
         userId: user.id,
-        role: user.role
+        role: user.role,
+        branch_id: user.branch_id,
+        brand_id: user.brand_id
       },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN }
@@ -122,16 +128,19 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// Kullanıcı bilgilerini alma
+// Kullanıcı bilgilerini alma - Marka bilgisi eklendi
 router.get('/me', authorize(), async (req, res) => {
   try {
     const userId = req.user.id;
     
     const result = await db.query(
-      `SELECT u.id, u.username, u.email, u.role, u.branch_id, 
-      b.name as branch_name, u.created_at, u.last_login
+      `SELECT u.id, u.username, u.email, u.role, 
+      u.branch_id, u.brand_id, u.full_name, u.phone,
+      b.name as branch_name, br.name as brand_name,
+      u.created_at, u.last_login
       FROM users u 
       LEFT JOIN branches b ON u.branch_id = b.id
+      LEFT JOIN brands br ON u.brand_id = br.id
       WHERE u.id = $1`,
       [userId]
     );
