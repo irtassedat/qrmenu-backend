@@ -11,7 +11,7 @@ const { router: authRoutes } = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const templatesRoutes = require('./routes/templates');
 const integrationsRoutes = require('./routes/integrations');
-
+const brandRoutes = require('./routes/brands');
 const app = express();
 
 // CORS yapılandırması - Geliştirme ortamı için daha fazla izin ver
@@ -50,6 +50,7 @@ app.use(express.json());
 
 // Routes
 app.use('/api/products', productRoutes);
+app.use('/api/brands', brandRoutes);
 app.use('/api/branches', branchRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/orders', orderRoutes);
