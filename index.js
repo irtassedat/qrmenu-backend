@@ -12,6 +12,7 @@ const userRoutes = require('./routes/users');
 const templatesRoutes = require('./routes/templates');
 const integrationsRoutes = require('./routes/integrations');
 const brandRoutes = require('./routes/brands');
+const dashboardRoutes = require('./routes/dashboard');
 const app = express();
 
 // CORS yapılandırması - Geliştirme ortamı için daha fazla izin ver
@@ -59,6 +60,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/templates', templatesRoutes);
 app.use('/api/integrations', integrationsRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 // Test endpoint
 app.get('/', (req, res) => {
   res.send('QR Menü Backend çalışıyor ✅');

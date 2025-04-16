@@ -52,20 +52,20 @@ router.post('/', async (req, res) => {
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, address, phone, email, manager_name, opening_hours, description, is_active } = req.body;
-    
+    const { name, address, phone, email, manager_name, opening_hours, description, is_active, brand_id } = req.body;
+
     // Temel doğrulama
     if (!name || !address) {
       return res.status(400).json({ error: 'Şube adı ve adres zorunludur' });
     }
-    
+
     //Şubenin mevcut olup olmadığı
     const checkResult = await db.query('SELECT id FROM branches WHERE id = $1', [id]);
     if (checkResult.rows.length === 0) {
       return res.status(404).json({ error: 'Şube bulunamadı' });
     }
-    
-    // Şubeyi güncelle
+
+    // Şubeyi güncelle - brand_id parametresi eklendi
     const result = await db.query(`
       UPDATE branches SET 
         name = $1, 
@@ -76,21 +76,23 @@ router.put('/:id', async (req, res) => {
         opening_hours = $6, 
         description = $7, 
         is_active = $8,
+        brand_id = $9,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $9
+      WHERE id = $10
       RETURNING *
     `, [
-      name, 
-      address, 
-      phone || null, 
-      email || null, 
-      manager_name || null, 
-      opening_hours || null, 
+      name,
+      address,
+      phone || null,
+      email || null,
+      manager_name || null,
+      opening_hours || null,
       description || null,
       is_active !== false, // undefined ise true kabul et
+      brand_id || null,    // brand_id parametresi eklendi
       id
     ]);
-    
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error('Şube güncellenirken hata:', err.message);
@@ -102,19 +104,60 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const checkResult = await db.query('SELECT id FROM branches WHERE id = $1', [id]);
     if (checkResult.rows.length === 0) {
       return res.status(404).json({ error: 'Şube bulunamadı' });
     }
-    
+
     // Şubeyi sil
     await db.query('DELETE FROM branches WHERE id = $1', [id]);
-    
+
     res.json({ message: 'Şube başarıyla silindi' });
   } catch (err) {
     console.error('Şube silinirken hata:', err.message);
     res.status(500).json({ error: 'Şube silinemedi', details: err.message });
+  }
+});
+
+// POST /api/branches/update-brand - Özel bir şubenin marka bilgisini güncelle
+router.post('/update-brand', async (req, res) => {
+  try {
+    const { branch_id, brand_id } = req.body;
+
+    if (!branch_id || !brand_id) {
+      return res.status(400).json({ error: 'Şube ID ve Marka ID zorunludur' });
+    }
+
+    // Şubenin var olup olmadığını kontrol et
+    const branchCheck = await db.query('SELECT id FROM branches WHERE id = $1', [branch_id]);
+    if (branchCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Şube bulunamadı' });
+    }
+
+    // Markanın var olup olmadığını kontrol et
+    const brandCheck = await db.query('SELECT id FROM brands WHERE id = $1', [brand_id]);
+    if (brandCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Marka bulunamadı' });
+    }
+
+    // Şubenin markasını güncelle
+    const result = await db.query(`
+      UPDATE branches SET 
+        brand_id = $1,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2
+      RETURNING *
+    `, [brand_id, branch_id]);
+
+    res.json({
+      success: true,
+      message: 'Şube markası başarıyla güncellendi',
+      data: result.rows[0]
+    });
+  } catch (err) {
+    console.error('Şube markası güncellenirken hata:', err.message);
+    res.status(500).json({ error: 'Şube markası güncellenemedi', details: err.message });
   }
 });
 
@@ -178,7 +221,7 @@ router.patch("/branch-product", async (req, res) => {
         paramCounter++;
       }
 
-      query += ` WHERE branch_id = $${paramCounter} AND product_id = $${paramCounter+1} RETURNING *`;
+      query += ` WHERE branch_id = $${paramCounter} AND product_id = $${paramCounter + 1} RETURNING *`;
       values.push(branch_id, product_id);
 
       console.log('Çalıştırılacak sorgu:', query, values); // Debug amaçlı
@@ -201,10 +244,10 @@ router.patch("/branch-product", async (req, res) => {
     });
   } catch (err) {
     console.error("Branch-product güncelleme hatası:", err);
-    res.status(500).json({ 
-      success: false, 
-      error: "Ürün durumu güncellenemedi", 
-      details: err.message 
+    res.status(500).json({
+      success: false,
+      error: "Ürün durumu güncellenemedi",
+      details: err.message
     });
   }
 });
