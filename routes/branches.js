@@ -100,6 +100,35 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// routes/branches.js içine ekleyin:
+
+// GET /api/branches/:id - Şube detaylarını getir
+router.get('/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Şubeyi şablon bilgileriyle birlikte getir
+    const result = await db.query(`
+      SELECT b.*, 
+             m.name as menu_template_name,
+             p.name as price_template_name
+      FROM branches b
+      LEFT JOIN menu_templates m ON b.menu_template_id = m.id
+      LEFT JOIN price_templates p ON b.price_template_id = p.id
+      WHERE b.id = $1
+    `, [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Şube bulunamadı' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Şube detayları alınırken hata:', err.message);
+    res.status(500).json({ error: 'Şube detayları getirilemedi' });
+  }
+});
+
 // DELETE /api/branches/:id → Şubeyi sil
 router.delete('/:id', async (req, res) => {
   try {
@@ -252,35 +281,100 @@ router.patch("/branch-product", async (req, res) => {
   }
 });
 
-// GET /api/branches/:id/menu → Şubeye özel QR menü için ürünleri getir
 router.get('/:id/menu', async (req, res) => {
   const branchId = req.params.id;
 
   try {
+    // Debug için detaylı log ekleyelim
+    console.log(`Şube ${branchId} için menü getiriliyor`);
+    
     // Önce şubenin mevcut olup olmadığını kontrol edelim
-    const branchCheck = await db.query('SELECT id, name FROM branches WHERE id = $1', [branchId]);
+    const branchCheck = await db.query('SELECT id, name, menu_template_id, price_template_id FROM branches WHERE id = $1', [branchId]);
+    
     if (branchCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Şube bulunamadı' });
     }
-
-    // Şube için görünür ürünleri ve kategorileri getir
-    const result = await db.query(`
-      SELECT p.*, c.name as category_name, bp.stock_count
+    
+    const branch = branchCheck.rows[0];
+    console.log('Şube bilgileri:', branch);
+    
+    // Eğer şubenin menü şablonu yoksa, tüm ürünleri göster (geriye uyumluluk için)
+    if (!branch.menu_template_id) {
+      console.log('Şube için menü şablonu bulunamadı, tüm ürünleri getiriyorum');
+      
+      const productsResult = await db.query(`
+        SELECT p.*, c.name as category_name, bp.stock_count, p.price as display_price
+        FROM products p
+        LEFT JOIN categories c ON p.category_id = c.id
+        LEFT JOIN branch_products bp ON p.id = bp.product_id AND bp.branch_id = $1
+        WHERE p.is_deleted = false AND (bp.is_visible IS NULL OR bp.is_visible = true)
+        ORDER BY c.name, p.name
+      `, [branchId]);
+      
+      return res.json({
+        branch: {
+          id: branch.id,
+          name: branch.name
+        },
+        products: productsResult.rows
+      });
+    }
+    
+    // Şubenin seçtiği menü şablonu varsa, o şablona göre getir
+    console.log(`Menü şablonu ID: ${branch.menu_template_id}, Fiyat şablonu ID: ${branch.price_template_id}`);
+    
+    // Şubenin seçtiği menü şablonundaki ürünleri getir
+    let query = `
+      SELECT 
+        p.*, 
+        c.name as category_name,
+        COALESCE(bp.stock_count, 0) as stock_count
+    `;
+    
+    // Fiyat şablonu varsa, o şablondaki fiyatları getir
+    if (branch.price_template_id) {
+      query += `, COALESCE(ptp.price, p.price) as display_price`;
+    } else {
+      query += `, p.price as display_price`;
+    }
+    
+    query += `
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
-      INNER JOIN branch_products bp ON p.id = bp.product_id
-      WHERE bp.branch_id = $1
-        AND bp.is_visible = true
+      INNER JOIN menu_template_products mtp ON p.id = mtp.product_id AND mtp.menu_template_id = $1
+    `;
+    
+    // Fiyat şablonu varsa, join et
+    if (branch.price_template_id) {
+      query += `LEFT JOIN price_template_products ptp ON p.id = ptp.product_id AND ptp.price_template_id = $2`;
+    }
+    
+    query += `
+      LEFT JOIN branch_products bp ON p.id = bp.product_id AND bp.branch_id = $3
+      WHERE mtp.is_visible = true
         AND p.is_deleted = false
       ORDER BY c.name, p.name
-    `, [branchId]);
+    `;
+    
+    let queryParams = [];
+    if (branch.price_template_id) {
+      queryParams = [branch.menu_template_id, branch.price_template_id, branchId];
+    } else {
+      queryParams = [branch.menu_template_id, branchId];
+    }
+    
+    const result = await db.query(query, queryParams);
+    console.log(`${result.rows.length} ürün bulundu`);
 
     res.json({
-      branch: branchCheck.rows[0],
+      branch: {
+        id: branch.id,
+        name: branch.name
+      },
       products: result.rows
     });
   } catch (err) {
-    console.error('Şube menüsü alınırken hata:', err.message);
+    console.error('Şube menüsü alınırken hata:', err);
     res.status(500).json({ error: 'Şube menüsü getirilemedi' });
   }
 });
