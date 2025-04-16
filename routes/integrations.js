@@ -18,11 +18,11 @@ router.get('/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const result = await db.query('SELECT * FROM integration_templates WHERE id = $1', [id]);
-        
+
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Entegrasyon bulunamadı' });
         }
-        
+
         res.json(result.rows[0]);
     } catch (err) {
         console.error('Entegrasyon detayı yüklenirken hata:', err.message);
@@ -34,12 +34,12 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
     try {
         const { name, type, description, is_active, config } = req.body;
-        
+
         // Temel doğrulama
         if (!name || !type) {
             return res.status(400).json({ error: 'Entegrasyon adı ve tipi zorunludur' });
         }
-        
+
         // Entegrasyonu ekle
         const result = await db.query(`
             INSERT INTO integration_templates (name, type, description, is_active, config)
@@ -52,7 +52,7 @@ router.post('/', async (req, res) => {
             is_active !== false, // undefined ise true kabul et
             config ? JSON.stringify(config) : '{}'
         ]);
-        
+
         res.status(201).json(result.rows[0]);
     } catch (err) {
         console.error('Entegrasyon eklenirken hata:', err.message);
@@ -65,12 +65,12 @@ router.put('/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const { name, type, description, is_active, config } = req.body;
-        
+
         // Temel doğrulama
         if (!name || !type) {
             return res.status(400).json({ error: 'Entegrasyon adı ve tipi zorunludur' });
         }
-        
+
         // Entegrasyonu güncelle
         const result = await db.query(`
             UPDATE integration_templates 
@@ -85,11 +85,11 @@ router.put('/:id', async (req, res) => {
             config ? JSON.stringify(config) : '{}',
             id
         ]);
-        
+
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Entegrasyon bulunamadı' });
         }
-        
+
         res.json(result.rows[0]);
     } catch (err) {
         console.error('Entegrasyon güncellenirken hata:', err.message);
@@ -101,9 +101,9 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         await db.query('DELETE FROM integration_templates WHERE id = $1', [id]);
-        
+
         res.json({ message: 'Entegrasyon başarıyla silindi' });
     } catch (err) {
         console.error('Entegrasyon silinirken hata:', err.message);
@@ -116,16 +116,16 @@ router.post('/branch/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const { integration_ids } = req.body;
-        
+
         // Şubenin var olup olmadığını kontrol et
         const branchCheck = await db.query('SELECT id FROM branches WHERE id = $1', [id]);
         if (branchCheck.rows.length === 0) {
             return res.status(404).json({ error: 'Şube bulunamadı' });
         }
-        
+
         // Tüm entegrasyonları kaldır
         await db.query('DELETE FROM branch_integrations WHERE branch_id = $1', [id]);
-        
+
         // Yeni entegrasyonları ekle
         if (Array.isArray(integration_ids) && integration_ids.length > 0) {
             for (const integration_id of integration_ids) {
@@ -135,7 +135,7 @@ router.post('/branch/:id', async (req, res) => {
                 `, [id, integration_id]);
             }
         }
-        
+
         // Güncel entegrasyonları getir
         const result = await db.query(`
             SELECT i.*, bi.is_active, bi.config
@@ -143,11 +143,38 @@ router.post('/branch/:id', async (req, res) => {
             JOIN branch_integrations bi ON i.id = bi.integration_id
             WHERE bi.branch_id = $1
         `, [id]);
-        
+
         res.json(result.rows);
     } catch (err) {
         console.error('Şube entegrasyonları güncellenirken hata:', err.message);
         res.status(500).json({ error: 'Entegrasyonlar güncellenemedi' });
+    }
+});
+
+// GET /api/integrations/branch/:id - Bir şubenin entegrasyon bilgilerini getir
+router.get('/branch/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Şubenin var olup olmadığını kontrol et
+        const branchCheck = await db.query('SELECT id FROM branches WHERE id = $1', [id]);
+        if (branchCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Şube bulunamadı' });
+        }
+
+        // Şubeye ait entegrasyonları getir
+        const result = await db.query(`
+        SELECT i.*, bi.is_active, bi.config
+        FROM integration_templates i
+        JOIN branch_integrations bi ON i.id = bi.integration_id
+        WHERE bi.branch_id = $1
+      `, [id]);
+
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Şube entegrasyonları yüklenirken hata:', err.message);
+        // Hata durumunda boş dizi döndür (404 yerine)
+        res.json([]);
     }
 });
 

@@ -92,15 +92,10 @@ router.get('/menu/:id/products', async (req, res) => {
     }
 });
 
-// POST /api/templates/menu/:id/products/update - Şubedeki ürün bilgilerini güncelle
-router.post('/menu/:id/products/update', async (req, res) => {
+// GET - /api/templates/menu/:id/products - Şablondaki ürünleri getir
+router.get('/menu/:id/products', async (req, res) => {
     try {
         const { id } = req.params;
-        const { branchId, products } = req.body;
-
-        if (!branchId || !Array.isArray(products)) {
-            return res.status(400).json({ error: 'Geçersiz istek formatı' });
-        }
 
         // Şablonu kontrol et
         const templateCheck = await db.query(
@@ -112,87 +107,25 @@ router.post('/menu/:id/products/update', async (req, res) => {
             return res.status(404).json({ error: 'Menü şablonu bulunamadı' });
         }
 
-        // Transaction başlat
-        const client = await db.getClient();
-        try {
-            await client.query('BEGIN');
+        // Ürünleri getir - JOIN ile kategori bilgilerini de al
+        const result = await db.query(`
+        SELECT 
+          p.*, 
+          c.name as category_name,
+          COALESCE(mtp.is_visible, false) as is_visible
+        FROM products p
+        LEFT JOIN categories c ON p.category_id = c.id
+        LEFT JOIN menu_template_products mtp ON p.id = mtp.product_id AND mtp.menu_template_id = $1
+        WHERE p.is_deleted = false
+        ORDER BY c.name, p.name
+      `, [id]);
 
-            // Her ürün için güncelleme yap
-            for (const product of products) {
-                // Görünürlük bilgisini menu_template_products tablosunda güncelle
-                if (product.is_visible !== undefined) {
-                    await client.query(`
-              INSERT INTO menu_template_products (menu_template_id, product_id, is_visible)
-              VALUES ($1, $2, $3)
-              ON CONFLICT (menu_template_id, product_id) 
-              DO UPDATE SET is_visible = $3
-            `, [id, product.product_id, product.is_visible]);
-                }
-
-                // Şube spesifik bilgileri branch_products tablosunda güncelle
-                if (product.price_override !== undefined || product.stock_count !== undefined) {
-                    // Önce branch_products kaydının var olup olmadığını kontrol et
-                    const bpCheck = await client.query(
-                        'SELECT * FROM branch_products WHERE branch_id = $1 AND product_id = $2',
-                        [branchId, product.product_id]
-                    );
-
-                    if (bpCheck.rows.length > 0) {
-                        // Kayıt varsa güncelle
-                        let updateFields = [];
-                        let updateValues = [];
-                        let paramCounter = 1;
-
-                        if (product.price_override !== undefined) {
-                            updateFields.push(`price_override = $${paramCounter}`);
-                            updateValues.push(product.price_override);
-                            paramCounter++;
-                        }
-
-                        if (product.stock_count !== undefined) {
-                            updateFields.push(`stock_count = $${paramCounter}`);
-                            updateValues.push(product.stock_count);
-                            paramCounter++;
-                        }
-
-                        if (updateFields.length > 0) {
-                            updateValues.push(branchId, product.product_id);
-                            await client.query(`
-                  UPDATE branch_products 
-                  SET ${updateFields.join(', ')} 
-                  WHERE branch_id = $${paramCounter} AND product_id = $${paramCounter + 1}
-                `, updateValues);
-                        }
-                    } else {
-                        // Kayıt yoksa ekle
-                        await client.query(`
-                INSERT INTO branch_products (branch_id, product_id, price_override, stock_count, is_visible)
-                VALUES ($1, $2, $3, $4, $5)
-              `, [
-                            branchId,
-                            product.product_id,
-                            product.price_override !== undefined ? product.price_override : null,
-                            product.stock_count !== undefined ? product.stock_count : 0,
-                            product.is_visible !== undefined ? product.is_visible : true
-                        ]);
-                    }
-                }
-            }
-
-            await client.query('COMMIT');
-            res.json({ success: true, message: 'Ürünler başarıyla güncellendi' });
-        } catch (err) {
-            await client.query('ROLLBACK');
-            throw err;
-        } finally {
-            client.release();
-        }
+        res.json(result.rows);
     } catch (err) {
-        console.error('Şablon ürünleri güncellenirken hata:', err);
-        res.status(500).json({ error: 'Şablon ürünleri güncellenemedi' });
+        console.error('Şablon ürünleri alınırken hata:', err);
+        res.status(500).json({ error: 'Şablon ürünleri getirilemedi' });
     }
 });
-
 
 // POST - /api/templates/menu/:id/products - Şablondaki ürünleri güncelle
 router.post('/menu/:id/products', async (req, res) => {
