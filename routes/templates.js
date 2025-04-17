@@ -92,41 +92,6 @@ router.get('/menu/:id/products', async (req, res) => {
     }
 });
 
-// GET - /api/templates/menu/:id/products - Şablondaki ürünleri getir
-router.get('/menu/:id/products', async (req, res) => {
-    try {
-        const { id } = req.params;
-
-        // Şablonu kontrol et
-        const templateCheck = await db.query(
-            'SELECT * FROM menu_templates WHERE id = $1',
-            [id]
-        );
-
-        if (templateCheck.rows.length === 0) {
-            return res.status(404).json({ error: 'Menü şablonu bulunamadı' });
-        }
-
-        // Ürünleri getir - JOIN ile kategori bilgilerini de al
-        const result = await db.query(`
-        SELECT 
-          p.*, 
-          c.name as category_name,
-          COALESCE(mtp.is_visible, false) as is_visible
-        FROM products p
-        LEFT JOIN categories c ON p.category_id = c.id
-        LEFT JOIN menu_template_products mtp ON p.id = mtp.product_id AND mtp.menu_template_id = $1
-        WHERE p.is_deleted = false
-        ORDER BY c.name, p.name
-      `, [id]);
-
-        res.json(result.rows);
-    } catch (err) {
-        console.error('Şablon ürünleri alınırken hata:', err);
-        res.status(500).json({ error: 'Şablon ürünleri getirilemedi' });
-    }
-});
-
 // POST - /api/templates/menu/:id/products - Şablondaki ürünleri güncelle
 router.post('/menu/:id/products', async (req, res) => {
     try {
