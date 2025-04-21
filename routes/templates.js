@@ -36,61 +36,59 @@ router.post('/menu', async (req, res) => {
 });
 
 // GET - /api/templates/menu/:id/products - Şablondaki ürünleri getir
+// GET - /api/templates/menu/:id/products - Şablondaki ürünleri getir
 router.get('/menu/:id/products', async (req, res) => {
     try {
-        const { id } = req.params;
-        const { branchId } = req.query; // Opsiyonel olarak şube spesifik bilgileri de getir
-
-        // Şablonu kontrol et
-        const templateCheck = await db.query(
-            'SELECT * FROM menu_templates WHERE id = $1',
-            [id]
-        );
-
-        if (templateCheck.rows.length === 0) {
-            return res.status(404).json({ error: 'Menü şablonu bulunamadı' });
-        }
-
-        // SQL sorgusunu hazırla - branch ID varsa şube spesifik bilgileri de getir
-        let query = `
-        SELECT 
-          p.*, 
-          c.name as category_name,
-          mtp.is_visible
-      `;
-
-        if (branchId) {
-            query += `, bp.stock_count, bp.price_override`;
-        }
-
-        query += `
-        FROM products p
-        LEFT JOIN categories c ON p.category_id = c.id
-        LEFT JOIN menu_template_products mtp ON p.id = mtp.product_id AND mtp.menu_template_id = $1
-      `;
-
-        if (branchId) {
-            query += ` LEFT JOIN branch_products bp ON p.id = bp.product_id AND bp.branch_id = $2`;
-        }
-
-        query += `
-        ORDER BY c.name, p.name
-      `;
-
-        // Sorguyu çalıştır
-        let result;
-        if (branchId) {
-            result = await db.query(query, [id, branchId]);
-        } else {
-            result = await db.query(query, [id]);
-        }
-
-        res.json(result.rows);
+      const { id } = req.params;
+      const { onlyTemplateProducts } = req.query; // Bu parametreyi alıyoruz
+      
+      // Şablonu kontrol et
+      const templateCheck = await db.query(
+        'SELECT * FROM menu_templates WHERE id = $1',
+        [id]
+      );
+  
+      if (templateCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Menü şablonu bulunamadı' });
+      }
+  
+      let query;
+      
+      // onlyTemplateProducts=true ise sadece şablondaki ürünleri getir
+      if (onlyTemplateProducts === 'true') {
+        query = `
+          SELECT 
+            p.*, 
+            c.name as category_name,
+            mtp.is_visible
+          FROM products p
+          LEFT JOIN categories c ON p.category_id = c.id
+          INNER JOIN menu_template_products mtp ON p.id = mtp.product_id 
+          WHERE mtp.menu_template_id = $1 AND p.is_deleted = false
+          ORDER BY c.name, p.name
+        `;
+      } else {
+        // Tüm ürünleri getir ve şablonda olanları işaretle
+        query = `
+          SELECT 
+            p.*, 
+            c.name as category_name,
+            COALESCE(mtp.is_visible, false) as is_visible
+          FROM products p
+          LEFT JOIN categories c ON p.category_id = c.id
+          LEFT JOIN menu_template_products mtp ON p.id = mtp.product_id AND mtp.menu_template_id = $1
+          WHERE p.is_deleted = false
+          ORDER BY c.name, p.name
+        `;
+      }
+  
+      const result = await db.query(query, [id]);
+      res.json(result.rows);
     } catch (err) {
-        console.error('Şablon ürünleri alınırken hata:', err);
-        res.status(500).json({ error: 'Şablon ürünleri getirilemedi' });
+      console.error('Şablon ürünleri alınırken hata:', err);
+      res.status(500).json({ error: 'Şablon ürünleri getirilemedi' });
     }
-});
+  });
 
 // POST - /api/templates/menu/:id/products - Şablondaki ürünleri güncelle
 router.post('/menu/:id/products', async (req, res) => {
