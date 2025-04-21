@@ -298,7 +298,7 @@ router.post('/import-template-products', async (req, res) => {
     try {
         const { branchId, menuTemplateId, products } = req.body;
 
-        if (!branchId || !menuTemplateId || !Array.isArray(products)) {
+        if ((!branchId && branchId !== null) || !menuTemplateId || !Array.isArray(products)) {
             return res.status(400).json({ error: 'Geçersiz istek formatı' });
         }
 
