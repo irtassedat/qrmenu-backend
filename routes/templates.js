@@ -39,24 +39,24 @@ router.post('/menu', async (req, res) => {
 // GET - /api/templates/menu/:id/products - Şablondaki ürünleri getir
 router.get('/menu/:id/products', async (req, res) => {
     try {
-      const { id } = req.params;
-      const { onlyTemplateProducts } = req.query; // Bu parametreyi alıyoruz
-      
-      // Şablonu kontrol et
-      const templateCheck = await db.query(
-        'SELECT * FROM menu_templates WHERE id = $1',
-        [id]
-      );
-  
-      if (templateCheck.rows.length === 0) {
-        return res.status(404).json({ error: 'Menü şablonu bulunamadı' });
-      }
-  
-      let query;
-      
-      // onlyTemplateProducts=true ise sadece şablondaki ürünleri getir
-      if (onlyTemplateProducts === 'true') {
-        query = `
+        const { id } = req.params;
+        const { onlyTemplateProducts } = req.query; // Bu parametreyi alıyoruz
+
+        // Şablonu kontrol et
+        const templateCheck = await db.query(
+            'SELECT * FROM menu_templates WHERE id = $1',
+            [id]
+        );
+
+        if (templateCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Menü şablonu bulunamadı' });
+        }
+
+        let query;
+
+        // onlyTemplateProducts=true ise sadece şablondaki ürünleri getir
+        if (onlyTemplateProducts === 'true') {
+            query = `
           SELECT 
             p.*, 
             c.name as category_name,
@@ -67,9 +67,9 @@ router.get('/menu/:id/products', async (req, res) => {
           WHERE mtp.menu_template_id = $1 AND p.is_deleted = false
           ORDER BY c.name, p.name
         `;
-      } else {
-        // Tüm ürünleri getir ve şablonda olanları işaretle
-        query = `
+        } else {
+            // Tüm ürünleri getir ve şablonda olanları işaretle
+            query = `
           SELECT 
             p.*, 
             c.name as category_name,
@@ -80,15 +80,15 @@ router.get('/menu/:id/products', async (req, res) => {
           WHERE p.is_deleted = false
           ORDER BY c.name, p.name
         `;
-      }
-  
-      const result = await db.query(query, [id]);
-      res.json(result.rows);
+        }
+
+        const result = await db.query(query, [id]);
+        res.json(result.rows);
     } catch (err) {
-      console.error('Şablon ürünleri alınırken hata:', err);
-      res.status(500).json({ error: 'Şablon ürünleri getirilemedi' });
+        console.error('Şablon ürünleri alınırken hata:', err);
+        res.status(500).json({ error: 'Şablon ürünleri getirilemedi' });
     }
-  });
+});
 
 // POST - /api/templates/menu/:id/products - Şablondaki ürünleri güncelle
 router.post('/menu/:id/products', async (req, res) => {
@@ -177,14 +177,14 @@ router.get('/price', async (req, res) => {
 // POST - /api/templates/price - Yeni fiyat şablonu ekle
 router.post('/price', async (req, res) => {
     try {
-        const { name, description, is_active, year } = req.body;
+        const { name, description, is_active, year, menu_template_id } = req.body;
         if (!name) return res.status(400).json({ error: 'Şablon adı zorunludur' });
 
         const result = await db.query(`
-            INSERT INTO price_templates (name, description, is_active, year)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO price_templates (name, description, is_active, year, menu_template_id)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *`,
-            [name, description || null, is_active !== false, year || new Date().getFullYear()]
+            [name, description || null, is_active !== false, year || new Date().getFullYear(), menu_template_id || null]
         );
 
         res.status(201).json(result.rows[0]);
@@ -202,20 +202,75 @@ router.get('/price/:id/products', async (req, res) => {
         const templateCheck = await db.query('SELECT * FROM price_templates WHERE id = $1', [id]);
         if (templateCheck.rows.length === 0) return res.status(404).json({ error: 'Şablon bulunamadı' });
 
-        const result = await db.query(`
-            SELECT p.*, c.name as category_name, COALESCE(ptp.price, p.price) as template_price
-            FROM products p
-            LEFT JOIN categories c ON p.category_id = c.id
-            LEFT JOIN price_template_products ptp ON p.id = ptp.product_id AND ptp.price_template_id = $1
-            WHERE p.is_deleted = false
-            ORDER BY c.name, p.name`,
-            [id]
-        );
+        const priceTemplate = templateCheck.rows[0];
 
-        res.json(result.rows);
+        // Fiyat şablonuna bağlı bir menü şablonu var mı kontrol et
+        if (priceTemplate.menu_template_id) {
+            // İlk olarak menü şablonunun varlığını kontrol et
+            const menuCheck = await db.query('SELECT id FROM menu_templates WHERE id = $1', [priceTemplate.menu_template_id]);
+            if (menuCheck.rows.length === 0) {
+                console.warn(`Fiyat şablonuna bağlı menü şablonu (${priceTemplate.menu_template_id}) bulunamadı, tüm ürünleri getiriyoruz.`);
+
+                // Menü şablonu yok - alternatif sorgu: Tüm ürünleri getir
+                const fallbackResult = await db.query(`
+                    SELECT p.*, c.name as category_name, COALESCE(ptp.price, p.price) as template_price
+                    FROM products p
+                    LEFT JOIN categories c ON p.category_id = c.id
+                    LEFT JOIN price_template_products ptp ON p.id = ptp.product_id AND ptp.price_template_id = $1
+                    WHERE p.is_deleted = false
+                    ORDER BY c.name, p.name`,
+                    [id]
+                );
+
+                return res.json(fallbackResult.rows);
+            }
+
+            try {
+                // Menü şablonundaki ürünleri getir ve fiyat bilgilerini ekle
+                const result = await db.query(`
+                    SELECT p.*, c.name as category_name, COALESCE(ptp.price, p.price) as template_price
+                    FROM products p
+                    LEFT JOIN categories c ON p.category_id = c.id
+                    JOIN menu_template_products mtp ON p.id = mtp.product_id AND mtp.menu_template_id = $1
+                    LEFT JOIN price_template_products ptp ON p.id = ptp.product_id AND ptp.price_template_id = $2
+                    WHERE p.is_deleted = false AND mtp.is_visible = true
+                    ORDER BY c.name, p.name`,
+                    [priceTemplate.menu_template_id, id]
+                );
+
+                return res.json(result.rows);
+            } catch (innerError) {
+                console.error('Menü şablonu ürünleri alınırken hata:', innerError.message);
+
+                // Hata olursa sadece fiyat ürünlerini getir
+                const fallbackResult = await db.query(`
+                    SELECT p.*, c.name as category_name, COALESCE(ptp.price, p.price) as template_price
+                    FROM products p
+                    LEFT JOIN categories c ON p.category_id = c.id
+                    LEFT JOIN price_template_products ptp ON p.id = ptp.product_id AND ptp.price_template_id = $1
+                    WHERE p.is_deleted = false
+                    ORDER BY c.name, p.name`,
+                    [id]
+                );
+
+                return res.json(fallbackResult.rows);
+            }
+        } else {
+            const result = await db.query(`
+                SELECT p.*, c.name as category_name, COALESCE(ptp.price, p.price) as template_price
+                FROM products p
+                LEFT JOIN categories c ON p.category_id = c.id
+                LEFT JOIN price_template_products ptp ON p.id = ptp.product_id AND ptp.price_template_id = $1
+                WHERE p.is_deleted = false
+                ORDER BY c.name, p.name`,
+                [id]
+            );
+
+            res.json(result.rows);
+        }
     } catch (err) {
         console.error('Şablon ürün fiyatları alınırken hata:', err.message);
-        res.status(500).json({ error: 'Şablon ürün fiyatları yüklenemedi' });
+        res.status(500).json({ error: 'Şablon ürün fiyatları yüklenemedi', details: err.message });
     }
 });
 
@@ -470,13 +525,13 @@ router.put('/menu/:id', async (req, res) => {
 router.put('/price/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, description, is_active, year } = req.body;
+        const { name, description, is_active, year, menu_template_id } = req.body;
 
         const result = await db.query(`
             UPDATE price_templates
-            SET name = $1, description = $2, is_active = $3, year = $4, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $5 RETURNING *`,
-            [name, description || null, is_active !== false, year || new Date().getFullYear(), id]
+            SET name = $1, description = $2, is_active = $3, year = $4, menu_template_id = $5, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $6 RETURNING *`,
+            [name, description || null, is_active !== false, year || new Date().getFullYear(), menu_template_id || null, id]
         );
 
         if (result.rows.length === 0) return res.status(404).json({ error: 'Şablon bulunamadı' });
@@ -529,6 +584,27 @@ router.patch('/branches/:id/templates', async (req, res) => {
     } catch (err) {
         console.error('Şube şablonları güncellenirken hata:', err.message);
         res.status(500).json({ error: 'Şablonlar güncellenemedi' });
+    }
+});
+
+router.get('/price/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const result = await db.query(`
+            SELECT * FROM price_templates 
+            WHERE id = $1`,
+            [id]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Fiyat şablonu bulunamadı' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('Fiyat şablonu detayı alınırken hata:', err.message);
+        res.status(500).json({ error: 'Fiyat şablonu detayı alınamadı' });
     }
 });
 
