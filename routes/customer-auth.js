@@ -2,11 +2,76 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const db = require('../db');
+const axios = require('axios');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'cesme-kahve-customer-key';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
 
-// Müşteri auth middleware - DÜZELTİLMİŞ
+// Test modu kontrolü
+const isTestMode = process.env.NODE_ENV === 'development' || process.env.SMS_TEST_MODE === 'true';
+
+// OTP oluşturma
+const generateOTP = () => {
+    // Test modunda sabit OTP kullan
+    if (isTestMode) {
+        return '123456';
+    }
+    return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+// NETGSM ile SMS gönderme
+const sendSMSviaNetGSM = async (phoneNumber, otp) => {
+    try {
+        const username = process.env.NETGSM_USERNAME;
+        const password = process.env.NETGSM_PASSWORD;
+        const header = process.env.NETGSM_HEADER || 'CESME KAHVE';
+        
+        if (!username || !password) {
+            console.error('NETGSM kimlik bilgileri eksik!');
+            return false;
+        }
+        
+        const message = `Çeşme Kahve doğrulama kodunuz: ${otp}`;
+        
+        const response = await axios.get('https://api.netgsm.com.tr/sms/send/get', {
+            params: {
+                usercode: username,
+                password: password,
+                gsmno: phoneNumber,
+                message: message,
+                msgheader: header,
+                dil: 'TR'
+            }
+        });
+        
+        console.log('NETGSM yanıtı:', response.data);
+        
+        // NETGSM yanıt kontrolü
+        return response.data.includes('00') || response.data.includes('01');
+    } catch (error) {
+        console.error('NETGSM SMS gönderim hatası:', error);
+        return false;
+    }
+};
+
+// Test modunda SMS gönderme
+const sendSMSTestMode = async (phoneNumber, otp) => {
+    console.log(`[TEST MODE] SMS gönderildi: ${phoneNumber} -> OTP: ${otp}`);
+    console.log(`[TEST MODE] Bu OTP'yi kullanın: 123456`);
+    return true;
+};
+
+// Ana SMS gönderme fonksiyonu
+const sendOTP = async (phoneNumber, otp) => {
+    if (isTestMode) {
+        return await sendSMSTestMode(phoneNumber, otp);
+    }
+    
+    // Gerçek SMS gönderimi
+    return await sendSMSviaNetGSM(phoneNumber, otp);
+};
+
+// Müşteri auth middleware
 const authenticateCustomer = async (req, res, next) => {
     try {
         const authHeader = req.headers.authorization;
@@ -34,19 +99,7 @@ const authenticateCustomer = async (req, res, next) => {
     }
 };
 
-// OTP gönderme fonksiyonu (SMS servisi entegrasyonu gerekecek)
-const sendOTP = async (phoneNumber, otp) => {
-    // TODO: SMS servisi entegrasyonu (Twilio, Netgsm vb.)
-    console.log(`OTP sent to ${phoneNumber}: ${otp}`);
-    return true;
-};
-
-// OTP oluşturma
-const generateOTP = () => {
-    return Math.floor(100000 + Math.random() * 900000).toString();
-};
-
-// OTP gönder - Login veya Register için
+// OTP gönder endpoint'i
 router.post('/send-otp', async (req, res) => {
     try {
         const { phone_number, otp_type } = req.body;
@@ -74,12 +127,18 @@ router.post('/send-otp', async (req, res) => {
         );
 
         // SMS gönder
-        await sendOTP(formattedPhone, otp);
+        const smsSent = await sendOTP(formattedPhone, otp);
+
+        if (!smsSent) {
+            return res.status(500).json({ error: 'SMS gönderilemedi' });
+        }
 
         res.json({ 
             success: true, 
             message: 'OTP başarıyla gönderildi',
-            phone_number: formattedPhone
+            phone_number: formattedPhone,
+            // Test modunda OTP'yi göster
+            ...(isTestMode && { test_otp: otp })
         });
     } catch (err) {
         console.error('OTP gönderimi hatası:', err);
@@ -87,7 +146,7 @@ router.post('/send-otp', async (req, res) => {
     }
 });
 
-// OTP doğrula ve giriş yap
+// OTP doğrulama endpoint'i
 router.post('/verify-otp', async (req, res) => {
     try {
         const { phone_number, otp_code } = req.body;
