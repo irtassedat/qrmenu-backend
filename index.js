@@ -14,6 +14,9 @@ const integrationsRoutes = require('./routes/integrations');
 const brandRoutes = require('./routes/brands');
 const dashboardRoutes = require('./routes/dashboard');
 const app = express();
+const customerAuthRouter = require('./routes/customer-auth').router;
+const loyaltyRouter = require('./routes/loyalty');
+
 
 // CORS yapılandırması - Geliştirme ortamı için daha fazla izin ver
 const corsOptions = {
@@ -61,6 +64,8 @@ app.use('/api/users', userRoutes);
 app.use('/api/templates', templatesRoutes);
 app.use('/api/integrations', integrationsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/customer-auth', customerAuthRouter);
+app.use('/api/loyalty', loyaltyRouter);
 // Test endpoint
 app.get('/', (req, res) => {
   res.send('QR Menü Backend çalışıyor ✅');
