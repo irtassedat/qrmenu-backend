@@ -58,7 +58,7 @@ router.get('/stats', authorize(['super_admin']), async (req, res) => {
 router.get('/transactions/recent', authorize(['super_admin']), async (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 10;
-        
+
         const transactions = await db.query(`
             SELECT pt.*, 
                    cp.full_name as customer_name,
@@ -82,7 +82,7 @@ router.get('/transactions/recent', authorize(['super_admin']), async (req, res) 
 router.get('/top-customers', authorize(['super_admin']), async (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 10;
-        
+
         const customers = await db.query(`
             SELECT cp.*, 
                    la.current_points,
@@ -113,17 +113,17 @@ router.get('/campaigns', authorize(['super_admin']), async (req, res) => {
             LEFT JOIN brands b ON lc.brand_id = b.id
             WHERE 1=1
         `;
-        
+
         const queryParams = [];
-        
+
         if (active === 'true') {
             query += ` AND lc.is_active = true 
                       AND lc.valid_from <= NOW() 
                       AND lc.valid_until >= NOW()`;
         }
-        
+
         query += ` ORDER BY lc.created_at DESC`;
-        
+
         if (limit) {
             query += ` LIMIT $${queryParams.length + 1}`;
             queryParams.push(parseInt(limit));
@@ -210,7 +210,7 @@ router.put('/campaigns/:id', authorize(['super_admin']), async (req, res) => {
 router.delete('/campaigns/:id', authorize(['super_admin']), async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         const result = await db.query(
             'DELETE FROM loyalty_campaigns WHERE id = $1 RETURNING id',
             [id]
@@ -252,7 +252,7 @@ router.get('/customers', authorize(['super_admin']), async (req, res) => {
 router.get('/customers/:id/details', authorize(['super_admin']), async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         // Müşteri bilgileri
         const customerResult = await db.query(`
             SELECT cp.*, 
@@ -316,7 +316,7 @@ router.post('/manual-transaction', authorize(['super_admin']), async (req, res) 
 
         // Puan işlemini yap
         const actualPoints = transaction_type === 'subtract' ? -points : points;
-        
+
         await db.query(
             `INSERT INTO point_transactions 
              (loyalty_account_id, transaction_type, points, balance_after, description, created_by)
@@ -373,7 +373,7 @@ router.get('/settings', authorize(['super_admin']), async (req, res) => {
                 PLATINUM: { min_points: 10000, benefits: ["Özel etkinliklere davet", "Ücretsiz doğum günü menüsü"] }
             }
         };
-        
+
         res.json(settings);
     } catch (err) {
         console.error('Ayarlar getirme hatası:', err);
@@ -438,7 +438,7 @@ router.post('/earn-points', async (req, res) => {
 
         // Puan hesapla (örnek: her 1 TL = 1 puan)
         const basePoints = Math.floor(order.total_price);
-        
+
         // Aktif kampanyaları kontrol et
         const campaigns = await getActiveCampaigns(order.brand_id, order.branch_id);
         let totalPoints = basePoints;
@@ -537,7 +537,7 @@ router.post('/accounts/create-or-get', authenticateCustomer, async (req, res) =>
 router.get('/customer/:id/data', authenticateCustomer, async (req, res) => {
     try {
         const customerId = req.params.id;
-        
+
         // Müşterinin sadakat hesabını getir
         const accountResult = await db.query(`
             SELECT la.*, b.name as brand_name, b.logo_url,
@@ -616,7 +616,7 @@ router.get('/customer/:id/data', authenticateCustomer, async (req, res) => {
 router.get('/customer/:id/all-accounts', authenticateCustomer, async (req, res) => {
     try {
         const customerId = req.params.id;
-        
+
         const accounts = await db.query(`
             SELECT la.*, b.name as brand_name, b.logo_url,
                    (SELECT COUNT(*) FROM point_transactions WHERE loyalty_account_id = la.id) as transaction_count,
@@ -642,7 +642,7 @@ router.get('/customer/:id/transactions', authenticateCustomer, async (req, res) 
     try {
         const customerId = req.params.id;
         const { limit = 20, offset = 0, brand_id } = req.query;
-        
+
         let query = `
             SELECT pt.*, b.name as branch_name, br.name as brand_name
             FROM point_transactions pt
@@ -651,19 +651,19 @@ router.get('/customer/:id/transactions', authenticateCustomer, async (req, res) 
             LEFT JOIN brands br ON la.brand_id = br.id
             WHERE la.customer_profile_id = $1
         `;
-        
+
         const queryParams = [customerId];
-        
+
         if (brand_id) {
             query += ` AND la.brand_id = $${queryParams.length + 1}`;
             queryParams.push(brand_id);
         }
-        
+
         query += ` ORDER BY pt.created_at DESC LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`;
         queryParams.push(limit, offset);
-        
+
         const transactionsResult = await db.query(query, queryParams);
-        
+
         // Toplam kayıt sayısı
         const countQuery = `
             SELECT COUNT(*) 
@@ -672,10 +672,10 @@ router.get('/customer/:id/transactions', authenticateCustomer, async (req, res) 
             WHERE la.customer_profile_id = $1
             ${brand_id ? `AND la.brand_id = $2` : ''}
         `;
-        
+
         const countParams = brand_id ? [customerId, brand_id] : [customerId];
         const countResult = await db.query(countQuery, countParams);
-        
+
         res.json({
             transactions: transactionsResult.rows,
             total: parseInt(countResult.rows[0].count),
@@ -693,13 +693,13 @@ router.post('/customer/account/ensure', authenticateCustomer, async (req, res) =
     try {
         const { brand_id, branch_id } = req.body;
         const customerId = req.customer.id;
-        
+
         // Mevcut hesabı kontrol et
         const existingAccount = await db.query(
             'SELECT * FROM loyalty_accounts WHERE customer_profile_id = $1 AND brand_id = $2',
             [customerId, brand_id]
         );
-        
+
         if (existingAccount.rows.length > 0) {
             res.json(existingAccount.rows[0]);
         } else {
@@ -711,10 +711,10 @@ router.post('/customer/account/ensure', authenticateCustomer, async (req, res) =
                  RETURNING *`,
                 [customerId, brand_id, branch_id]
             );
-            
+
             // Hoşgeldin kampanyası kontrolü
             await applyWelcomeCampaign(newAccount.rows[0].id, brand_id);
-            
+
             res.status(201).json(newAccount.rows[0]);
         }
     } catch (err) {
@@ -727,7 +727,7 @@ router.post('/customer/account/ensure', authenticateCustomer, async (req, res) =
 router.get('/customer/available-campaigns', authenticateCustomer, async (req, res) => {
     try {
         const { brand_id, branch_id } = req.query;
-        
+
         const campaigns = await db.query(`
             SELECT lc.*
             FROM loyalty_campaigns lc
@@ -738,7 +738,7 @@ router.get('/customer/available-campaigns', authenticateCustomer, async (req, re
             AND (lc.target_branches = '{}' OR $2 = ANY(lc.target_branches))
             ORDER BY lc.campaign_type, lc.created_at DESC
         `, [brand_id, branch_id]);
-        
+
         res.json(campaigns.rows);
     } catch (err) {
         console.error('Kampanya listesi hatası:', err);
@@ -751,33 +751,33 @@ router.post('/customer/check-points-redemption', authenticateCustomer, async (re
     try {
         const { brand_id, points_to_use, order_total } = req.body;
         const customerId = req.customer.id;
-        
+
         // Müşterinin mevcut puanlarını kontrol et
         const accountResult = await db.query(
             'SELECT current_points FROM loyalty_accounts WHERE customer_profile_id = $1 AND brand_id = $2',
             [customerId, brand_id]
         );
-        
+
         if (accountResult.rows.length === 0) {
             return res.json({
                 can_redeem: false,
                 reason: 'Sadakat hesabı bulunamadı'
             });
         }
-        
+
         const currentPoints = accountResult.rows[0].current_points;
-        
+
         // Puan kullanım kurallarını al
         const settingsResult = await db.query(
             'SELECT setting_value FROM loyalty_settings WHERE brand_id = $1 AND setting_key = $2',
             [brand_id, 'point_rules']
         );
-        
+
         const pointRules = settingsResult.rows[0]?.setting_value || {
             min_points_for_redemption: 100,
             points_to_currency_ratio: 0.01 // 1 puan = 0.01 TL
         };
-        
+
         // Kontrolleri yap
         if (currentPoints < points_to_use) {
             return res.json({
@@ -785,17 +785,17 @@ router.post('/customer/check-points-redemption', authenticateCustomer, async (re
                 reason: 'Yetersiz puan'
             });
         }
-        
+
         if (points_to_use < pointRules.min_points_for_redemption) {
             return res.json({
                 can_redeem: false,
                 reason: `Minimum ${pointRules.min_points_for_redemption} puan kullanılabilir`
             });
         }
-        
+
         const discountAmount = points_to_use * pointRules.points_to_currency_ratio;
         const maxDiscount = order_total * 0.5; // Maksimum %50 indirim
-        
+
         if (discountAmount > maxDiscount) {
             return res.json({
                 can_redeem: false,
@@ -803,7 +803,7 @@ router.post('/customer/check-points-redemption', authenticateCustomer, async (re
                 max_points: Math.floor(maxDiscount / pointRules.points_to_currency_ratio)
             });
         }
-        
+
         res.json({
             can_redeem: true,
             discount_amount: discountAmount,
@@ -812,6 +812,243 @@ router.post('/customer/check-points-redemption', authenticateCustomer, async (re
     } catch (err) {
         console.error('Puan kullanım kontrolü hatası:', err);
         res.status(500).json({ error: 'Puan kontrolü yapılamadı' });
+    }
+});
+
+// routes/loyalty.js içine eklenecek endpointler
+
+// GET /api/loyalty/customers - Müşteri arama (search parametresiyle)
+router.get('/customers', authorize(['super_admin']), async (req, res) => {
+    try {
+        const { search } = req.query;
+        let query = `
+            SELECT cp.*, 
+                   la.current_points,
+                   la.lifetime_points,
+                   la.tier_level,
+                   la.brand_id,
+                   b.name as brand_name
+            FROM customer_profiles cp
+            LEFT JOIN loyalty_accounts la ON cp.id = la.customer_profile_id
+            LEFT JOIN brands b ON la.brand_id = b.id
+            WHERE 1=1
+        `;
+
+        const queryParams = [];
+
+        if (search) {
+            queryParams.push(`%${search}%`);
+            query += ` AND (cp.full_name ILIKE $${queryParams.length} OR cp.phone_number ILIKE $${queryParams.length})`;
+        }
+
+        query += ` ORDER BY cp.created_at DESC`;
+
+        const result = await db.query(query, queryParams);
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Müşteri arama hatası:', err);
+        res.status(500).json({ error: 'Müşteri araması başarısız' });
+    }
+});
+
+// GET /api/loyalty/customer/:customerId/accounts/:brandId - Belirli bir markadaki müşteri hesabını getir
+router.get('/customer/:customerId/accounts/:brandId', authorize(['super_admin']), async (req, res) => {
+    try {
+        const { customerId, brandId } = req.params;
+
+        const result = await db.query(
+            `SELECT la.*, b.name as brand_name
+             FROM loyalty_accounts la
+             JOIN brands b ON la.brand_id = b.id
+             WHERE la.customer_profile_id = $1 AND la.brand_id = $2`,
+            [customerId, brandId]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Müşteri hesabı bulunamadı' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (err) {
+        console.error('Müşteri hesabı getirme hatası:', err);
+        res.status(500).json({ error: 'Müşteri hesabı getirilemedi' });
+    }
+});
+
+// POST /api/loyalty/branch-transfer - Şubeler arası puan transferi
+router.post('/branch-transfer', authorize(['super_admin']), async (req, res) => {
+    const client = await db.getClient();
+
+    try {
+        await client.query('BEGIN');
+
+        const {
+            customer_id,
+            brand_id,
+            from_branch_id,
+            to_branch_id,
+            points_amount,
+            transfer_reason
+        } = req.body;
+
+        // Validasyonlar
+        if (!customer_id || !brand_id || !from_branch_id || !to_branch_id || !points_amount) {
+            return res.status(400).json({ error: 'Eksik parametreler' });
+        }
+
+        if (from_branch_id === to_branch_id) {
+            return res.status(400).json({ error: 'Aynı şubeler arasında transfer yapılamaz' });
+        }
+
+        // Şubelerin aynı markaya ait olduğunu kontrol et
+        const branchCheck = await client.query(
+            `SELECT id FROM branches 
+             WHERE id IN ($1, $2) AND brand_id = $3`,
+            [from_branch_id, to_branch_id, brand_id]
+        );
+
+        if (branchCheck.rows.length !== 2) {
+            return res.status(400).json({ error: 'Şubeler aynı markaya ait değil' });
+        }
+
+        // Müşterinin ilgili markadaki sadakat hesabını kontrol et
+        const accountResult = await client.query(
+            `SELECT * FROM loyalty_accounts 
+             WHERE customer_profile_id = $1 AND brand_id = $2`,
+            [customer_id, brand_id]
+        );
+
+        if (accountResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Müşteri sadakat hesabı bulunamadı' });
+        }
+
+        const loyaltyAccount = accountResult.rows[0];
+
+        // Yeterli puan kontrolü
+        if (loyaltyAccount.current_points < points_amount) {
+            return res.status(400).json({ error: 'Yetersiz puan' });
+        }
+
+        // Transfer işlemini kaydet - Kaynak şubeden puan çıkışı
+        await client.query(
+            `INSERT INTO point_transactions 
+             (loyalty_account_id, branch_id, transaction_type, points, balance_after, description, created_by, metadata)
+             VALUES ($1, $2, 'transfer_out', $3, $4, $5, $6, $7)`,
+            [
+                loyaltyAccount.id,
+                from_branch_id,
+                -points_amount,
+                loyaltyAccount.current_points - points_amount,
+                `Şube transferi: ${transfer_reason || 'Transfer'}`,
+                req.user.id,
+                JSON.stringify({
+                    transfer_type: 'branch_transfer',
+                    from_branch_id,
+                    to_branch_id,
+                    reason: transfer_reason
+                })
+            ]
+        );
+
+        // Transfer işlemini kaydet - Hedef şubeye puan girişi
+        await client.query(
+            `INSERT INTO point_transactions 
+             (loyalty_account_id, branch_id, transaction_type, points, balance_after, description, created_by, metadata)
+             VALUES ($1, $2, 'transfer_in', $3, $4, $5, $6, $7)`,
+            [
+                loyaltyAccount.id,
+                to_branch_id,
+                points_amount,
+                loyaltyAccount.current_points - points_amount,
+                `Şube transferi: ${transfer_reason || 'Transfer'}`,
+                req.user.id,
+                JSON.stringify({
+                    transfer_type: 'branch_transfer',
+                    from_branch_id,
+                    to_branch_id,
+                    reason: transfer_reason
+                })
+            ]
+        );
+
+        // Sadakat hesabını güncelle - Puan miktarı değişmez, sadece preferred_branch güncellenir
+        await client.query(
+            `UPDATE loyalty_accounts 
+             SET preferred_branch_id = $1, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2`,
+            [to_branch_id, loyaltyAccount.id]
+        );
+
+        await client.query('COMMIT');
+
+        res.json({
+            success: true,
+            message: 'Transfer başarıyla tamamlandı',
+            data: {
+                customer_id,
+                from_branch_id,
+                to_branch_id,
+                points_amount,
+                new_preferred_branch: to_branch_id
+            }
+        });
+
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Şube transferi hatası:', err);
+        res.status(500).json({ error: 'Transfer yapılamadı' });
+    } finally {
+        client.release();
+    }
+});
+
+// GET /api/loyalty/transfer-history - Transfer geçmişini görüntüle
+router.get('/transfer-history', authorize(['super_admin']), async (req, res) => {
+    try {
+        const { brand_id, branch_id, customer_id, limit = 50 } = req.query;
+
+        let query = `
+            SELECT pt.*, 
+                   cp.full_name as customer_name, 
+                   cp.phone_number as customer_phone,
+                   b.name as branch_name,
+                   br.name as brand_name,
+                   u.username as created_by_username
+            FROM point_transactions pt
+            JOIN loyalty_accounts la ON pt.loyalty_account_id = la.id
+            JOIN customer_profiles cp ON la.customer_profile_id = cp.id
+            LEFT JOIN branches b ON pt.branch_id = b.id
+            LEFT JOIN brands br ON la.brand_id = br.id
+            LEFT JOIN users u ON pt.created_by = u.id
+            WHERE pt.transaction_type IN ('transfer_in', 'transfer_out')
+        `;
+
+        const queryParams = [];
+
+        if (brand_id) {
+            queryParams.push(brand_id);
+            query += ` AND la.brand_id = $${queryParams.length}`;
+        }
+
+        if (branch_id) {
+            queryParams.push(branch_id);
+            query += ` AND pt.branch_id = $${queryParams.length}`;
+        }
+
+        if (customer_id) {
+            queryParams.push(customer_id);
+            query += ` AND la.customer_profile_id = $${queryParams.length}`;
+        }
+
+        query += ` ORDER BY pt.created_at DESC LIMIT $${queryParams.length + 1}`;
+        queryParams.push(limit);
+
+        const result = await db.query(query, queryParams);
+
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Transfer geçmişi hatası:', err);
+        res.status(500).json({ error: 'Transfer geçmişi getirilemedi' });
     }
 });
 
