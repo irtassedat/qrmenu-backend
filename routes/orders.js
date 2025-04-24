@@ -252,9 +252,26 @@ router.post('/', async (req, res) => {
             table_number, 
             branch_id,
             customer_profile_id,
-            used_points,           // Kullanılan puan miktarı
-            discount_amount        // İndirim tutarı
+            used_points,
+            discount_amount,
+            phone
         } = req.body;
+
+        // Eğer customer_profile_id varsa, müşterinin bilgilerini çekelim
+        let customerName = name;
+        let customerPhone = phone;
+        
+        if (customer_profile_id) {
+            const customerResult = await client.query(
+                'SELECT full_name, phone_number FROM customer_profiles WHERE id = $1',
+                [customer_profile_id]
+            );
+            
+            if (customerResult.rows.length > 0) {
+                customerName = customerResult.rows[0].full_name || customerName;
+                customerPhone = customerResult.rows[0].phone_number || customerPhone;
+            }
+        }
 
         // Toplam tutarı hesapla (indirim uygulanmış)
         const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -264,18 +281,19 @@ router.post('/', async (req, res) => {
         const result = await client.query(
             `INSERT INTO orders 
              (items, name, table_number, branch_id, total_price, customer_profile_id, 
-              used_points, discount_amount) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+              used_points, discount_amount, phone) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
              RETURNING *`,
             [
                 JSON.stringify(items),
-                name,
+                customerName || "Anonim",
                 table_number,
                 branch_id || 1,
                 total_price,
                 customer_profile_id,
                 used_points || 0,
-                discount_amount || 0
+                discount_amount || 0,
+                customerPhone
             ]
         );
 
