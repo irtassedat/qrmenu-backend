@@ -1,4 +1,3 @@
-// routes/theme.js
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
@@ -7,7 +6,6 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Ensure uploads directory exists
 const uploadDir = './public/uploads';
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
@@ -348,6 +346,164 @@ router.get('/change-logs/:type/:id', authorize(['super_admin', 'branch_manager']
   } catch (err) {
     console.error('Tema değişiklik logları alınırken hata:', err);
     res.status(500).json({ error: 'Değişiklik logları alınamadı' });
+  }
+});
+
+// Markanın tema ayarlarını şubelerine uygula
+router.post('/apply-brand-theme/:brandId', authorize(['super_admin']), async (req, res) => {
+  const client = await db.getClient();
+
+  try {
+    await client.query('BEGIN');
+    
+    const { brandId } = req.params;
+    const { applyToAll = false, branchIds = [] } = req.body;
+    
+    // Markanın mevcut tema ayarlarını al
+    const brandThemeResult = await client.query(
+      'SELECT theme_settings FROM brands WHERE id = $1',
+      [brandId]
+    );
+    
+    if (brandThemeResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Marka bulunamadı' });
+    }
+    
+    const brandThemeSettings = brandThemeResult.rows[0].theme_settings;
+    
+    if (!brandThemeSettings) {
+      return res.status(400).json({ error: 'Markaya ait tema ayarları bulunamadı' });
+    }
+    
+    // Hedef şubeleri belirle
+    let targetBranchIds = [];
+    
+    if (applyToAll) {
+      // Tüm şubelerin ID'lerini al
+      const branchesResult = await client.query(
+        'SELECT id FROM branches WHERE brand_id = $1',
+        [brandId]
+      );
+      targetBranchIds = branchesResult.rows.map(branch => branch.id);
+    } else {
+      // Sadece belirtilen şubeleri kullan
+      targetBranchIds = branchIds;
+    }
+    
+    if (targetBranchIds.length === 0) {
+      return res.status(400).json({ 
+        error: 'Tema ayarlarını uygulanacak şube bulunamadı',
+        message: 'Lütfen şubeleri seçin veya tüm şubelere uygula seçeneğini işaretleyin'
+      });
+    }
+    
+    // Her bir şubeye tema ayarlarını uygula
+    for (const branchId of targetBranchIds) {
+      await client.query(
+        'UPDATE branches SET theme_settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [brandThemeSettings, branchId]
+      );
+      
+      // Tema değişiklik logu ekle
+      await client.query(`
+        INSERT INTO theme_change_logs 
+        (branch_id, changed_by, old_settings, new_settings, change_source)
+        VALUES ($1, $2, (SELECT theme_settings FROM branches WHERE id = $1), $3, 'brand_theme_sync')
+      `, [branchId, req.user.id, brandThemeSettings]);
+    }
+    
+    await client.query('COMMIT');
+    
+    res.json({
+      success: true,
+      message: `Tema ayarları ${targetBranchIds.length} şubeye başarıyla uygulandı`,
+      applied_to: targetBranchIds
+    });
+    
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Marka tema ayarları şubelere uygulanırken hata:', err);
+    res.status(500).json({ error: 'Tema ayarları uygulanamadı', details: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Yeni endpoint: Default ayarları al ve şubeye uygula
+router.post('/apply-brand-defaults/:branchId', authorize(['super_admin', 'branch_manager']), async (req, res) => {
+  const client = await db.getClient();
+  
+  try {
+    await client.query('BEGIN');
+    
+    const { branchId } = req.params;
+    
+    // Şubenin marka bilgisini al
+    const branchResult = await client.query(
+      'SELECT brand_id FROM branches WHERE id = $1',
+      [branchId]
+    );
+    
+    if (branchResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Şube bulunamadı' });
+    }
+    
+    const brandId = branchResult.rows[0].brand_id;
+    
+    if (!brandId) {
+      return res.status(400).json({ error: 'Bu şube herhangi bir markaya ait değil' });
+    }
+    
+    // Markanın tema ayarlarını al
+    const brandThemeResult = await client.query(
+      'SELECT theme_settings FROM brands WHERE id = $1',
+      [brandId]
+    );
+    
+    if (brandThemeResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Marka bulunamadı' });
+    }
+    
+    const brandThemeSettings = brandThemeResult.rows[0].theme_settings;
+    
+    if (!brandThemeSettings) {
+      return res.status(400).json({ error: 'Markaya ait tema ayarları bulunamadı' });
+    }
+    
+    // Şubenin mevcut tema ayarlarını kaydet (log için)
+    const currentSettings = await client.query(
+      'SELECT theme_settings FROM branches WHERE id = $1',
+      [branchId]
+    );
+    
+    // Tema ayarlarını şubeye uygula
+    await client.query(
+      'UPDATE branches SET theme_settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [brandThemeSettings, branchId]
+    );
+    
+    // Tema değişiklik logu ekle
+    await client.query(`
+      INSERT INTO theme_change_logs 
+      (branch_id, changed_by, old_settings, new_settings, change_source)
+      VALUES ($1, $2, $3, $4, 'brand_default_applied')
+    `, [branchId, req.user.id, currentSettings.rows[0].theme_settings, brandThemeSettings]);
+    
+    await client.query('COMMIT');
+    
+    res.json({
+      success: true,
+      message: 'Marka varsayılan tema ayarları şubeye başarıyla uygulandı',
+      branch_id: branchId,
+      brand_id: brandId
+    });
+    
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Marka varsayılan ayarları şubeye uygulanırken hata:', err);
+    res.status(500).json({ error: 'Tema ayarları uygulanamadı', details: err.message });
+  } finally {
+    client.release();
   }
 });
 

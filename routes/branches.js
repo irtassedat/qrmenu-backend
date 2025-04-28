@@ -16,7 +16,7 @@ router.get('/', async (req, res) => {
 // POST /api/branches → Yeni şube ekle 
 router.post('/', async (req, res) => {
   try {
-    const { name, address, phone, email, manager_name, opening_hours, description, is_active } = req.body;
+    const { name, address, phone, email, manager_name, opening_hours, description, is_active, brand_id } = req.body;
 
     // Temel doğrulama
     if (!name || !address) {
@@ -26,9 +26,9 @@ router.post('/', async (req, res) => {
     // Yeni şubeyi veritabanına ekle
     const result = await db.query(`
       INSERT INTO branches (
-        name, address, phone, email, manager_name, opening_hours, description, is_active
+        name, address, phone, email, manager_name, opening_hours, description, is_active, brand_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
     `, [
       name,
@@ -38,8 +38,33 @@ router.post('/', async (req, res) => {
       manager_name || null,
       opening_hours || null,
       description || null,
-      is_active !== false // undefined ise true kabul et
+      is_active !== false, // undefined ise true kabul et
+      brand_id || null     // brand_id parametresi eklendi
     ]);
+
+    // Şube oluşturulduktan sonra, markanın varsayılan tema ayarlarını şubeye uygulayın
+    if (result.rows[0].brand_id) {
+      try {
+        // Markanın tema ayarlarını al
+        const brandTheme = await db.query(
+          'SELECT theme_settings FROM brands WHERE id = $1',
+          [result.rows[0].brand_id]
+        );
+        
+        if (brandTheme.rows.length > 0 && brandTheme.rows[0].theme_settings) {
+          // Tema ayarlarını yeni şubeye uygula
+          await db.query(
+            'UPDATE branches SET theme_settings = $1 WHERE id = $2',
+            [brandTheme.rows[0].theme_settings, result.rows[0].id]
+          );
+          
+          console.log(`Marka ID ${result.rows[0].brand_id} tema ayarları yeni şube ID ${result.rows[0].id} için uygulandı`);
+        }
+      } catch (themeErr) {
+        console.error("Marka tema ayarları yeni şubeye uygulanırken hata:", themeErr);
+        // Tema ayarları uygulanamasa bile şube oluşturma işlemine devam et
+      }
+    }
 
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -178,6 +203,28 @@ router.post('/update-brand', async (req, res) => {
       WHERE id = $2
       RETURNING *
     `, [brand_id, branch_id]);
+
+    // Marka değiştirildiğinde, yeni markanın tema ayarlarını şubeye uygulama opsiyonu ekleyelim
+    try {
+      // Markanın tema ayarlarını al
+      const brandTheme = await db.query(
+        'SELECT theme_settings FROM brands WHERE id = $1',
+        [brand_id]
+      );
+      
+      if (brandTheme.rows.length > 0 && brandTheme.rows[0].theme_settings) {
+        // Tema ayarlarını şubeye uygula
+        await db.query(
+          'UPDATE branches SET theme_settings = $1 WHERE id = $2',
+          [brandTheme.rows[0].theme_settings, branch_id]
+        );
+        
+        console.log(`Marka değişimi: Marka ID ${brand_id} tema ayarları şube ID ${branch_id} için uygulandı`);
+      }
+    } catch (themeErr) {
+      console.error("Marka değişiminde tema ayarları şubeye uygulanırken hata:", themeErr);
+      // Tema ayarları uygulanamasa bile işleme devam et
+    }
 
     res.json({
       success: true,
