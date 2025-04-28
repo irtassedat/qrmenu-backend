@@ -2,21 +2,7 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 
-const productRoutes = require('./routes/products');
-const branchRoutes = require('./routes/branches');
-const categoryRoutes = require('./routes/categories');
-const orderRoutes = require('./routes/orders');
-const analyticsRoutes = require('./routes/analytics');
-const { router: authRoutes } = require('./routes/auth');
-const userRoutes = require('./routes/users');
-const templatesRoutes = require('./routes/templates');
-const integrationsRoutes = require('./routes/integrations');
-const brandRoutes = require('./routes/brands');
-const dashboardRoutes = require('./routes/dashboard');
 const app = express();
-const customerAuthRouter = require('./routes/customer-auth').router;
-const loyaltyRouter = require('./routes/loyalty');
-
 
 // CORS yapılandırması - Geliştirme ortamı için daha fazla izin ver
 const corsOptions = {
@@ -53,22 +39,56 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 // Routes
-app.use('/api/products', productRoutes);
-app.use('/api/brands', brandRoutes);
-app.use('/api/branches', branchRoutes);
-app.use('/api/categories', categoryRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/analytics', analyticsRoutes);
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/templates', templatesRoutes);
-app.use('/api/integrations', integrationsRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/customer-auth', customerAuthRouter);
+const productsRouter = require('./routes/products');
+const categoriesRouter = require('./routes/categories');
+const branchesRouter = require('./routes/branches');
+const ordersRouter = require('./routes/orders');
+const { router: authRouter } = require('./routes/auth');
+const templatesRouter = require('./routes/templates');
+const integrationsRouter = require('./routes/integrations');
+const usersRouter = require('./routes/users');
+const analyticsRouter = require('./routes/analytics');
+const brandsRouter = require('./routes/brands');
+const dashboardRouter = require('./routes/dashboard');
+const loyaltyRouter = require('./routes/loyalty');
+const { router: customerAuthRouter } = require('./routes/customer-auth');
+const themeRouter = require('./routes/theme'); // Tema route'ları
+
+// Route tanımlamaları
+app.use('/api/products', productsRouter);
+app.use('/api/categories', categoriesRouter);
+app.use('/api/branches', branchesRouter);
+app.use('/api/orders', ordersRouter);
+app.use('/api/auth', authRouter);
+app.use('/api/templates', templatesRouter);
+app.use('/api/integrations', integrationsRouter);
+app.use('/api/users', usersRouter);
+app.use('/api/analytics', analyticsRouter);
+app.use('/api/brands', brandsRouter);
+app.use('/api/dashboard', dashboardRouter);
 app.use('/api/loyalty', loyaltyRouter);
+app.use('/api/customer-auth', customerAuthRouter);
+app.use('/api/theme', themeRouter); // Tema route'ları
+
+// Upload için route (basit implementasyon)
+app.post('/api/upload', (req, res) => {
+  // Burada gerçek upload işlemi yapılacak
+  // Şimdilik örnek bir URL dönüyoruz
+  res.json({ url: '/uploads/example-image.jpg' });
+});
+
 // Test endpoint
 app.get('/', (req, res) => {
   res.send('QR Menü Backend çalışıyor ✅');
+});
+
+// Hata yakalama middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ 
+    error: 'Sunucu hatası', 
+    message: process.env.NODE_ENV === 'development' ? err.message : undefined 
+  });
 });
 
 // Sunucuyu başlat
