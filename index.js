@@ -1,26 +1,25 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
 
-// CORS yapılandırması - Geliştirme ortamı için daha fazla izin ver
+// CORS yapılandırması 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Whitelist - Tüm olası domainleri ekleyin
+    // Whitelist
     const allowedOrigins = [
       'http://localhost:5173',  // Vite dev server
       'http://localhost:5174',  // Alternatif port
       'http://localhost:3000',  // React dev server
       'https://qr.405found.tr',  // Prodüksiyon ortamı
-      'https://www.qr.405found.tr',  // www ile
-      undefined  // Doğrudan sunucudan yapılan istekler için
+      'https://www.qr.405found.tr',
+      undefined  // Doğrudan sunucudan yapılan istekler
     ];
-    
-    // Debug için origin'i logla
+    				
     console.log('Request origin:', origin);
     
-    // Origin null olabilir (örn. Postman istekleri)
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
@@ -32,11 +31,13 @@ const corsOptions = {
   methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS"
 };
 
-// CORS middleware'i uygula
 app.use(cors(corsOptions));
 
-// JSON body parse
-app.use(express.json());
+// JSON body parse ayarlarını güncelle - boyut limitlerini artır
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
 
 // Routes
 const productsRouter = require('./routes/products');
@@ -52,7 +53,7 @@ const brandsRouter = require('./routes/brands');
 const dashboardRouter = require('./routes/dashboard');
 const loyaltyRouter = require('./routes/loyalty');
 const { router: customerAuthRouter } = require('./routes/customer-auth');
-const themeRouter = require('./routes/theme'); // Tema route'ları
+const themeRouter = require('./routes/theme');
 
 // Route tanımlamaları
 app.use('/api/products', productsRouter);
@@ -70,7 +71,8 @@ app.use('/api/loyalty', loyaltyRouter);
 app.use('/api/customer-auth', customerAuthRouter);
 app.use('/api/theme', themeRouter); // Tema route'ları
 
-// Upload için route (basit implementasyon)
+// Upload için route (artık kullanılmıyor - theme.js'de yeni implementasyon var)
+// Geriye dönük uyumluluk için tutulabilir (önerilmez)
 app.post('/api/upload', (req, res) => {
   // Burada gerçek upload işlemi yapılacak
   // Şimdilik örnek bir URL dönüyoruz
@@ -91,8 +93,8 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Sunucuyu başlat
 const PORT = process.env.PORT || 5050;
 app.listen(PORT, () => {
   console.log(`🚀 Server is running on http://localhost:${PORT}`);
+  console.log(`📁 Uploads accessible at: http://localhost:${PORT}/uploads`);
 });

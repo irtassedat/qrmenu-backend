@@ -3,6 +3,106 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { authorize } = require('./auth');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+// Ensure uploads directory exists
+const uploadDir = './public/uploads';
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Dosya yükleme konfigürasyonu
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    // Benzersiz dosya adı ve uzantısı koruyarak kaydetme
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+// Desteklenen dosya tiplerini kontrol etme
+const fileFilter = (req, file, cb) => {
+  // İzin verilen MIME tipleri
+  const allowedTypes = [
+    'image/jpeg', 
+    'image/png', 
+    'image/gif', 
+    'image/svg+xml',
+    'video/mp4',
+    'video/webm'
+  ];
+
+  if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Desteklenmeyen dosya formatı. Sadece JPG, PNG, GIF, SVG, MP4 ve WEBM desteklenmektedir.'), false);
+  }
+};
+
+// Dosya boyutu limiti (10MB)
+const limits = {
+  fileSize: 50 * 1024 * 1024
+};
+
+const upload = multer({ 
+  storage: storage,
+  fileFilter: fileFilter,
+  limits: limits
+});
+
+// Medya yükleme endpoint'i
+router.post('/upload-media', authorize(['super_admin', 'branch_manager']), upload.single('media'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Dosya yüklenemedi' });
+    }
+
+    // Yüklenen dosyanın URL'sini oluştur
+    const fileUrl = `/uploads/${req.file.filename}`;
+    
+    // Log
+    console.log(`Dosya yüklendi: ${req.file.originalname} -> ${fileUrl} (${req.file.mimetype})`);
+    
+    // Dosya türünü belirle
+    const fileType = req.file.mimetype.startsWith('video/') ? 'video' : 'image';
+    
+    res.json({
+      success: true,
+      url: fileUrl,
+      type: fileType,
+      originalName: req.file.originalname,
+      size: req.file.size
+    });
+  } catch (err) {
+    console.error('Medya yüklenirken hata:', err);
+    res.status(500).json({ error: 'Medya yüklenemedi', message: err.message });
+  }
+});
+
+// Logo yükleme endpoint'i
+router.post('/upload-logo', authorize(['super_admin', 'branch_manager']), upload.single('logo'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Logo yüklenemedi' });
+    }
+
+    // Yüklenen logoyu kaydet
+    const fileUrl = `/uploads/${req.file.filename}`;
+    
+    res.json({
+      success: true,
+      url: fileUrl
+    });
+  } catch (err) {
+    console.error('Logo yüklenirken hata:', err);
+    res.status(500).json({ error: 'Logo yüklenemedi' });
+  }
+});
 
 // PUBLIC ROUTE - Tema ayarlarını getir (QR menü için)
 router.get('/public/settings/:type/:id', async (req, res) => {
