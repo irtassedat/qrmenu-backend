@@ -44,7 +44,7 @@ const productsRouter = require('./routes/products');
 const categoriesRouter = require('./routes/categories');
 const branchesRouter = require('./routes/branches');
 const ordersRouter = require('./routes/orders');
-const { router: authRouter } = require('./routes/auth');
+const { router: authRouter, authorize } = require('./routes/auth');
 const templatesRouter = require('./routes/templates');
 const integrationsRouter = require('./routes/integrations');
 const usersRouter = require('./routes/users');
@@ -70,14 +70,6 @@ app.use('/api/dashboard', dashboardRouter);
 app.use('/api/loyalty', loyaltyRouter);
 app.use('/api/customer-auth', customerAuthRouter);
 app.use('/api/theme', themeRouter); // Tema route'ları
-
-// Upload için route (artık kullanılmıyor - theme.js'de yeni implementasyon var)
-// Geriye dönük uyumluluk için tutulabilir (önerilmez)
-app.post('/api/upload', (req, res) => {
-  // Burada gerçek upload işlemi yapılacak
-  // Şimdilik örnek bir URL dönüyoruz
-  res.json({ url: '/uploads/example-image.jpg' });
-});
 
 // Test endpoint
 app.get('/', (req, res) => {

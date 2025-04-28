@@ -35,13 +35,29 @@ const authorize = (allowedRoles = []) => {
       
       const user = userQuery.rows[0];
       
+      // Kullanıcı bilgilerini isteğe ekle
+      req.user = user;
+      
+      // Eğer kullanıcı belirli bir şubeyi yönetiyorsa ve URL'de şube ID'si varsa
+      if (
+        user.role === 'branch_manager' && 
+        user.branch_id && 
+        req.params.branchId && 
+        parseInt(req.params.branchId) === parseInt(user.branch_id)
+      ) {
+        // Branch manager kendi şubesini yönetebilir
+        return next();
+      }
+      
+      // Admin her zaman erişebilir
+      if (user.role === 'super_admin') {
+        return next();
+      }
+      
       // Rol kontrolü
       if (allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
         return res.status(403).json({ error: 'Bu işlem için yetkiniz yok' });
       }
-      
-      // Kullanıcı bilgilerini isteğe ekle
-      req.user = user;
       
       next();
     } catch (err) {

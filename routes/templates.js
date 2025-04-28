@@ -1,13 +1,30 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { authorize } = require('./auth');
 
 // --- MENU TEMPLATE ROUTES ---
 
 // GET - /api/templates/menu - Menü şablonlarını getir
-router.get('/menu', async (req, res) => {
+router.get('/menu', authorize(['super_admin', 'branch_manager']), async (req, res) => {
     try {
-        const result = await db.query('SELECT * FROM menu_templates ORDER BY name ASC');
+        // Branch manager ise sadece kendi şubesinin şablonlarını getir
+        let query = 'SELECT * FROM menu_templates';
+        const queryParams = [];
+        
+        if (req.user && req.user.role === 'branch_manager' && req.user.branch_id) {
+            // Şubenin marka ID'sini al
+            const branchResult = await db.query('SELECT brand_id FROM branches WHERE id = $1', [req.user.branch_id]);
+            
+            if (branchResult.rows.length > 0 && branchResult.rows[0].brand_id) {
+                // Markaya ait şablonları veya herkese açık şablonları getir
+                query += ' WHERE brand_id = $1 OR is_public = true';
+                queryParams.push(branchResult.rows[0].brand_id);
+            }
+        }
+        
+        query += ' ORDER BY name ASC';
+        const result = await db.query(query, queryParams);
         res.json(result.rows);
     } catch (err) {
         console.error('Menü şablonları yüklenirken hata:', err.message);
@@ -16,7 +33,7 @@ router.get('/menu', async (req, res) => {
 });
 
 // POST - /api/templates/menu - Yeni menü şablonu ekle
-router.post('/menu', async (req, res) => {
+router.post('/menu', authorize(['super_admin']), async (req, res) => {
     try {
         const { name, description, is_active } = req.body;
         if (!name) return res.status(400).json({ error: 'Şablon adı zorunludur' });
@@ -36,8 +53,7 @@ router.post('/menu', async (req, res) => {
 });
 
 // GET - /api/templates/menu/:id/products - Şablondaki ürünleri getir
-// GET - /api/templates/menu/:id/products - Şablondaki ürünleri getir
-router.get('/menu/:id/products', async (req, res) => {
+router.get('/menu/:id/products', authorize(['super_admin', 'branch_manager']), async (req, res) => {
     try {
         const { id } = req.params;
         const { onlyTemplateProducts } = req.query; // Bu parametreyi alıyoruz
@@ -50,6 +66,29 @@ router.get('/menu/:id/products', async (req, res) => {
 
         if (templateCheck.rows.length === 0) {
             return res.status(404).json({ error: 'Menü şablonu bulunamadı' });
+        }
+        
+        // Branch manager ise şablona erişim hakkı olup olmadığını kontrol et
+        if (req.user.role === 'branch_manager' && req.user.branch_id) {
+            const branchCheck = await db.query(
+                'SELECT brand_id FROM branches WHERE id = $1',
+                [req.user.branch_id]
+            );
+            
+            if (branchCheck.rows.length > 0) {
+                const branchBrandId = branchCheck.rows[0].brand_id;
+                const templateBrandCheck = await db.query(
+                    'SELECT brand_id, is_public FROM menu_templates WHERE id = $1',
+                    [id]
+                );
+                
+                if (templateBrandCheck.rows.length > 0) {
+                    const template = templateBrandCheck.rows[0];
+                    if (!template.is_public && template.brand_id !== branchBrandId) {
+                        return res.status(403).json({ error: 'Bu şablona erişim yetkiniz yok' });
+                    }
+                }
+            }
         }
 
         let query;
@@ -91,10 +130,33 @@ router.get('/menu/:id/products', async (req, res) => {
 });
 
 // POST - /api/templates/menu/:id/products - Şablondaki ürünleri güncelle
-router.post('/menu/:id/products', async (req, res) => {
+router.post('/menu/:id/products', authorize(['super_admin', 'branch_manager']), async (req, res) => {
     try {
         const { id } = req.params;
         const { products } = req.body;
+        
+        // Branch manager şablon yetki kontrolü
+        if (req.user.role === 'branch_manager') {
+            const templateCheck = await db.query(
+                'SELECT brand_id, is_public FROM menu_templates WHERE id = $1',
+                [id]
+            );
+            
+            if (templateCheck.rows.length > 0) {
+                const template = templateCheck.rows[0];
+                const branchCheck = await db.query(
+                    'SELECT brand_id FROM branches WHERE id = $1',
+                    [req.user.branch_id]
+                );
+                
+                if (branchCheck.rows.length > 0) {
+                    const branchBrandId = branchCheck.rows[0].brand_id;
+                    if (!template.is_public && template.brand_id !== branchBrandId) {
+                        return res.status(403).json({ error: 'Bu şablonu güncelleme yetkiniz yok' });
+                    }
+                }
+            }
+        }
 
         const client = await db.getClient();
         try {
@@ -123,10 +185,33 @@ router.post('/menu/:id/products', async (req, res) => {
 });
 
 // BATCH - /api/templates/menu/:id/products/batch - Excel'den toplu ürün güncelleme
-router.post('/menu/:id/products/batch', async (req, res) => {
+router.post('/menu/:id/products/batch', authorize(['super_admin', 'branch_manager']), async (req, res) => {
     try {
         const { id } = req.params;
         const products = req.body;
+        
+        // Branch manager yetki kontrolü
+        if (req.user.role === 'branch_manager') {
+            const templateCheck = await db.query(
+                'SELECT brand_id, is_public FROM menu_templates WHERE id = $1',
+                [id]
+            );
+            
+            if (templateCheck.rows.length > 0) {
+                const template = templateCheck.rows[0];
+                const branchCheck = await db.query(
+                    'SELECT brand_id FROM branches WHERE id = $1',
+                    [req.user.branch_id]
+                );
+                
+                if (branchCheck.rows.length > 0) {
+                    const branchBrandId = branchCheck.rows[0].brand_id;
+                    if (!template.is_public && template.brand_id !== branchBrandId) {
+                        return res.status(403).json({ error: 'Bu şablonu toplu güncelleme yetkiniz yok' });
+                    }
+                }
+            }
+        }
 
         const client = await db.getClient();
         try {
@@ -164,9 +249,25 @@ router.post('/menu/:id/products/batch', async (req, res) => {
 // --- PRICE TEMPLATE ROUTES ---
 
 // GET - /api/templates/price - Fiyat şablonlarını getir
-router.get('/price', async (req, res) => {
+router.get('/price', authorize(['super_admin', 'branch_manager']), async (req, res) => {
     try {
-        const result = await db.query('SELECT * FROM price_templates ORDER BY name ASC');
+        // Branch manager ise sadece kendi şubesinin şablonlarını getir
+        let query = 'SELECT * FROM price_templates';
+        const queryParams = [];
+        
+        if (req.user && req.user.role === 'branch_manager' && req.user.branch_id) {
+            // Şubenin marka ID'sini al
+            const branchResult = await db.query('SELECT brand_id FROM branches WHERE id = $1', [req.user.branch_id]);
+            
+            if (branchResult.rows.length > 0 && branchResult.rows[0].brand_id) {
+                // Markaya ait şablonları veya herkese açık şablonları getir
+                query += ' WHERE brand_id = $1 OR is_public = true';
+                queryParams.push(branchResult.rows[0].brand_id);
+            }
+        }
+        
+        query += ' ORDER BY name ASC';
+        const result = await db.query(query, queryParams);
         res.json(result.rows);
     } catch (err) {
         console.error('Fiyat şablonları yüklenirken hata:', err.message);
@@ -175,7 +276,7 @@ router.get('/price', async (req, res) => {
 });
 
 // POST - /api/templates/price - Yeni fiyat şablonu ekle
-router.post('/price', async (req, res) => {
+router.post('/price', authorize(['super_admin']), async (req, res) => {
     try {
         const { name, description, is_active, year, menu_template_id } = req.body;
         if (!name) return res.status(400).json({ error: 'Şablon adı zorunludur' });
@@ -195,9 +296,32 @@ router.post('/price', async (req, res) => {
 });
 
 // GET - /api/templates/price/:id/products - Şablondaki ürün fiyatlarını getir
-router.get('/price/:id/products', async (req, res) => {
+router.get('/price/:id/products', authorize(['super_admin', 'branch_manager']), async (req, res) => {
     try {
         const { id } = req.params;
+
+        // Branch manager yetki kontrolü
+        if (req.user.role === 'branch_manager') {
+            const templateCheck = await db.query(
+                'SELECT brand_id, is_public FROM price_templates WHERE id = $1',
+                [id]
+            );
+            
+            if (templateCheck.rows.length > 0) {
+                const template = templateCheck.rows[0];
+                const branchCheck = await db.query(
+                    'SELECT brand_id FROM branches WHERE id = $1',
+                    [req.user.branch_id]
+                );
+                
+                if (branchCheck.rows.length > 0) {
+                    const branchBrandId = branchCheck.rows[0].brand_id;
+                    if (!template.is_public && template.brand_id !== branchBrandId) {
+                        return res.status(403).json({ error: 'Bu fiyat şablonuna erişim yetkiniz yok' });
+                    }
+                }
+            }
+        }
 
         const templateCheck = await db.query('SELECT * FROM price_templates WHERE id = $1', [id]);
         if (templateCheck.rows.length === 0) return res.status(404).json({ error: 'Şablon bulunamadı' });
@@ -275,10 +399,33 @@ router.get('/price/:id/products', async (req, res) => {
 });
 
 // POST - /api/templates/price/:id/products - Şablondaki ürün fiyatlarını güncelle
-router.post('/price/:id/products', async (req, res) => {
+router.post('/price/:id/products', authorize(['super_admin', 'branch_manager']), async (req, res) => {
     try {
         const { id } = req.params;
         const { products } = req.body;
+        
+        // Branch manager yetki kontrolü
+        if (req.user.role === 'branch_manager') {
+            const templateCheck = await db.query(
+                'SELECT brand_id, is_public FROM price_templates WHERE id = $1',
+                [id]
+            );
+            
+            if (templateCheck.rows.length > 0) {
+                const template = templateCheck.rows[0];
+                const branchCheck = await db.query(
+                    'SELECT brand_id FROM branches WHERE id = $1',
+                    [req.user.branch_id]
+                );
+                
+                if (branchCheck.rows.length > 0) {
+                    const branchBrandId = branchCheck.rows[0].brand_id;
+                    if (!template.is_public && template.brand_id !== branchBrandId) {
+                        return res.status(403).json({ error: 'Bu fiyat şablonunu güncelleme yetkiniz yok' });
+                    }
+                }
+            }
+        }
 
         const client = await db.getClient();
         try {
@@ -309,10 +456,33 @@ router.post('/price/:id/products', async (req, res) => {
 });
 
 // BATCH - /api/templates/price/:id/products/batch - Excel'den toplu fiyat güncelleme
-router.post('/price/:id/products/batch', async (req, res) => {
+router.post('/price/:id/products/batch', authorize(['super_admin', 'branch_manager']), async (req, res) => {
     try {
         const { id } = req.params;
         const products = req.body;
+        
+        // Branch manager yetki kontrolü
+        if (req.user.role === 'branch_manager') {
+            const templateCheck = await db.query(
+                'SELECT brand_id, is_public FROM price_templates WHERE id = $1',
+                [id]
+            );
+            
+            if (templateCheck.rows.length > 0) {
+                const template = templateCheck.rows[0];
+                const branchCheck = await db.query(
+                    'SELECT brand_id FROM branches WHERE id = $1',
+                    [req.user.branch_id]
+                );
+                
+                if (branchCheck.rows.length > 0) {
+                    const branchBrandId = branchCheck.rows[0].brand_id;
+                    if (!template.is_public && template.brand_id !== branchBrandId) {
+                        return res.status(403).json({ error: 'Bu fiyat şablonunu toplu güncelleme yetkiniz yok' });
+                    }
+                }
+            }
+        }
 
         const client = await db.getClient();
         try {
@@ -347,12 +517,39 @@ router.post('/price/:id/products/batch', async (req, res) => {
 });
 
 // POST /api/templates/import-template-products - Şablona toplu ürün ekleme
-router.post('/import-template-products', async (req, res) => {
+router.post('/import-template-products', authorize(['super_admin', 'branch_manager']), async (req, res) => {
     try {
         const { branchId, menuTemplateId, products } = req.body;
 
         if ((!branchId && branchId !== null) || !menuTemplateId || !Array.isArray(products)) {
             return res.status(400).json({ error: 'Geçersiz istek formatı' });
+        }
+        
+        // Branch manager yetki kontrolü
+        if (req.user.role === 'branch_manager') {
+            if (branchId && parseInt(req.user.branch_id) !== parseInt(branchId)) {
+                return res.status(403).json({ error: 'Bu şubeye ürün ekleme yetkiniz yok' });
+            }
+            
+            const templateCheck = await db.query(
+                'SELECT brand_id, is_public FROM menu_templates WHERE id = $1',
+                [menuTemplateId]
+            );
+            
+            if (templateCheck.rows.length > 0) {
+                const template = templateCheck.rows[0];
+                const branchCheck = await db.query(
+                    'SELECT brand_id FROM branches WHERE id = $1',
+                    [req.user.branch_id]
+                );
+                
+                if (branchCheck.rows.length > 0) {
+                    const branchBrandId = branchCheck.rows[0].brand_id;
+                    if (!template.is_public && template.brand_id !== branchBrandId) {
+                        return res.status(403).json({ error: 'Bu şablona ürün ekleme yetkiniz yok' });
+                    }
+                }
+            }
         }
 
         // Şablonu kontrol et
@@ -501,7 +698,7 @@ router.post('/import-template-products', async (req, res) => {
 // --- ORTAK ---
 
 // PUT - Menü / Fiyat şablonlarını güncelle
-router.put('/menu/:id', async (req, res) => {
+router.put('/menu/:id', authorize(['super_admin']), async (req, res) => {
     try {
         const { id } = req.params;
         const { name, description, is_active } = req.body;
@@ -522,7 +719,7 @@ router.put('/menu/:id', async (req, res) => {
     }
 });
 
-router.put('/price/:id', async (req, res) => {
+router.put('/price/:id', authorize(['super_admin']), async (req, res) => {
     try {
         const { id } = req.params;
         const { name, description, is_active, year, menu_template_id } = req.body;
@@ -544,7 +741,7 @@ router.put('/price/:id', async (req, res) => {
 });
 
 // DELETE - Menü / Fiyat şablonu silme
-router.delete('/menu/:id', async (req, res) => {
+router.delete('/menu/:id', authorize(['super_admin']), async (req, res) => {
     try {
         await db.query('DELETE FROM menu_templates WHERE id = $1', [req.params.id]);
         res.json({ message: 'Menü şablonu başarıyla silindi' });
@@ -554,7 +751,7 @@ router.delete('/menu/:id', async (req, res) => {
     }
 });
 
-router.delete('/price/:id', async (req, res) => {
+router.delete('/price/:id', authorize(['super_admin']), async (req, res) => {
     try {
         await db.query('DELETE FROM price_templates WHERE id = $1', [req.params.id]);
         res.json({ message: 'Fiyat şablonu başarıyla silindi' });
@@ -565,10 +762,15 @@ router.delete('/price/:id', async (req, res) => {
 });
 
 // PATCH - Şube şablon ataması
-router.patch('/branches/:id/templates', async (req, res) => {
+router.patch('/branches/:id/templates', authorize(['super_admin', 'branch_manager']), async (req, res) => {
     try {
         const { id } = req.params;
         const { menu_template_id, price_template_id } = req.body;
+        
+        // Branch manager yetkisi
+        if (req.user.role === 'branch_manager' && parseInt(req.user.branch_id) !== parseInt(id)) {
+            return res.status(403).json({ error: 'Bu şubenin şablonlarını güncelleme yetkiniz yok' });
+        }
 
         const branchCheck = await db.query('SELECT id FROM branches WHERE id = $1', [id]);
         if (branchCheck.rows.length === 0) return res.status(404).json({ error: 'Şube bulunamadı' });
@@ -587,9 +789,32 @@ router.patch('/branches/:id/templates', async (req, res) => {
     }
 });
 
-router.get('/price/:id', async (req, res) => {
+router.get('/price/:id', authorize(['super_admin', 'branch_manager']), async (req, res) => {
     try {
         const { id } = req.params;
+
+        // Branch manager yetki kontrolü
+        if (req.user.role === 'branch_manager') {
+            const templateCheck = await db.query(
+                'SELECT brand_id, is_public FROM price_templates WHERE id = $1',
+                [id]
+            );
+            
+            if (templateCheck.rows.length > 0) {
+                const template = templateCheck.rows[0];
+                const branchCheck = await db.query(
+                    'SELECT brand_id FROM branches WHERE id = $1',
+                    [req.user.branch_id]
+                );
+                
+                if (branchCheck.rows.length > 0) {
+                    const branchBrandId = branchCheck.rows[0].brand_id;
+                    if (!template.is_public && template.brand_id !== branchBrandId) {
+                        return res.status(403).json({ error: 'Bu fiyat şablonuna erişim yetkiniz yok' });
+                    }
+                }
+            }
+        }
 
         const result = await db.query(`
             SELECT * FROM price_templates 

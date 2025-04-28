@@ -42,7 +42,7 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
-// Dosya boyutu limiti (10MB)
+// Dosya boyutu limiti (50MB)
 const limits = {
   fileSize: 50 * 1024 * 1024
 };
@@ -99,6 +99,28 @@ router.post('/upload-logo', authorize(['super_admin', 'branch_manager']), upload
   } catch (err) {
     console.error('Logo yüklenirken hata:', err);
     res.status(500).json({ error: 'Logo yüklenemedi' });
+  }
+});
+
+// Eski upload endpoint'i (geriye uyumluluk için)
+router.post('/upload', authorize(['super_admin', 'branch_manager']), upload.single('image'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Dosya yüklenemedi' });
+    }
+    
+    // Dosya URL'ini oluştur
+    const fileUrl = `/uploads/${req.file.filename}`;
+    
+    res.json({
+      success: true,
+      url: fileUrl,
+      originalName: req.file.originalname,
+      size: req.file.size
+    });
+  } catch (err) {
+    console.error('Dosya yüklenirken hata:', err.message);
+    res.status(500).json({ error: 'Dosya yüklenemedi', details: err.message });
   }
 });
 
@@ -241,6 +263,100 @@ router.put('/settings/:type/:id', authorize(['super_admin', 'branch_manager']), 
   }
 });
 
+// Marka tema ayarları - Geriye uyumlu yollar (eski endpointler)
+router.get('/brand/:id', authorize(['super_admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await db.query(
+      'SELECT theme_settings FROM brands WHERE id = $1',
+      [id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Marka bulunamadı' });
+    }
+    
+    res.json(result.rows[0].theme_settings || {});
+  } catch (err) {
+    console.error('Marka tema ayarları alınırken hata:', err.message);
+    res.status(500).json({ error: 'Marka tema ayarları getirilemedi' });
+  }
+});
+
+router.put('/brand/:id', authorize(['super_admin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const themeSettings = req.body;
+    
+    const result = await db.query(
+      'UPDATE brands SET theme_settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id, name, theme_settings',
+      [themeSettings, id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Marka bulunamadı' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Marka tema ayarları güncellenirken hata:', err.message);
+    res.status(500).json({ error: 'Marka tema ayarları güncellenemedi' });
+  }
+});
+
+// Şube tema ayarları - Geriye uyumlu yollar (eski endpointler)
+router.get('/branch/:id', authorize(['super_admin', 'branch_manager']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Branch manager sadece kendi şubesinin tema ayarlarını görebilir
+    if (req.user.role === 'branch_manager' && parseInt(req.user.branch_id) !== parseInt(id)) {
+      return res.status(403).json({ error: 'Bu şubenin tema ayarlarını görüntüleme yetkiniz yok' });
+    }
+    
+    const result = await db.query(
+      'SELECT theme_settings FROM branches WHERE id = $1',
+      [id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Şube bulunamadı' });
+    }
+    
+    res.json(result.rows[0].theme_settings || {});
+  } catch (err) {
+    console.error('Şube tema ayarları alınırken hata:', err.message);
+    res.status(500).json({ error: 'Şube tema ayarları getirilemedi' });
+  }
+});
+
+router.put('/branch/:id', authorize(['super_admin', 'branch_manager']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const themeSettings = req.body;
+    
+    // Branch manager sadece kendi şubesinin tema ayarlarını güncelleyebilir
+    if (req.user.role === 'branch_manager' && parseInt(req.user.branch_id) !== parseInt(id)) {
+      return res.status(403).json({ error: 'Bu şubenin tema ayarlarını güncelleme yetkiniz yok' });
+    }
+    
+    const result = await db.query(
+      'UPDATE branches SET theme_settings = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id, name, theme_settings',
+      [themeSettings, id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Şube bulunamadı' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Şube tema ayarları güncellenirken hata:', err.message);
+    res.status(500).json({ error: 'Şube tema ayarları güncellenemedi' });
+  }
+});
+
 // Tema şablonlarını getir
 router.get('/templates', authorize(['super_admin']), async (req, res) => {
   try {
@@ -284,6 +400,12 @@ router.post('/apply-template/:templateId/:type/:id', authorize(['super_admin', '
 
     const { templateId, type, id } = req.params;
     const table = type === 'brand' ? 'brands' : 'branches';
+    
+    // Branch manager yetki kontrolü
+    if (type === 'branch' && req.user.role === 'branch_manager' && req.user.branch_id !== parseInt(id)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Bu şubeye tema şablonu uygulama yetkiniz yok' });
+    }
 
     // Şablonu al
     const templateResult = await client.query('SELECT settings FROM theme_templates WHERE id = $1', [templateId]);
@@ -330,6 +452,11 @@ router.get('/change-logs/:type/:id', authorize(['super_admin', 'branch_manager']
   try {
     const { type, id } = req.params;
     const { limit = 20, offset = 0 } = req.query;
+    
+    // Branch manager yetki kontrolü
+    if (type === 'branch' && req.user.role === 'branch_manager' && req.user.branch_id !== parseInt(id)) {
+      return res.status(403).json({ error: 'Bu şubenin tema değişiklik geçmişini görme yetkiniz yok' });
+    }
 
     const result = await db.query(`
       SELECT 
@@ -437,6 +564,12 @@ router.post('/apply-brand-defaults/:branchId', authorize(['super_admin', 'branch
     await client.query('BEGIN');
     
     const { branchId } = req.params;
+    
+    // Branch manager yetki kontrolü
+    if (req.user.role === 'branch_manager' && parseInt(req.user.branch_id) !== parseInt(branchId)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Bu şubeye marka varsayılanlarını uygulama yetkiniz yok' });
+    }
     
     // Şubenin marka bilgisini al
     const branchResult = await client.query(
