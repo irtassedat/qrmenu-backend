@@ -2,8 +2,9 @@
 
 RESTful API for a multi-brand, multi-branch restaurant management system. Built with **Express.js** and **PostgreSQL**. Handles authentication, product management, ordering, loyalty programs, and theme customization.
 
-> **Live:** [qr.sebastianlogic.com](https://qr.sebastianlogic.com)
-> **Frontend:** [qrmenu-frontend](https://github.com/irtassedat/qrmenu-frontend)
+> **Live Demo:** [qr.sebastianlogic.com](https://qr.sebastianlogic.com)
+> **Customer Menu:** [qr.sebastianlogic.com/menu/19](https://qr.sebastianlogic.com/menu/19)
+> **Frontend Repo:** [qrmenu-frontend](https://github.com/irtassedat/qrmenu-frontend)
 
 ---
 
