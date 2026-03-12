@@ -1,0 +1,6 @@
+{
+  "default_product_image": "/uploads/default-product.webp",
+  "brand_default_images": {
+    "13": "/uploads/brand-13-default.webp"
+  }
+}
